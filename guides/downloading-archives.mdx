@@ -1,0 +1,262 @@
+---
+title: Downloading Archive Files
+description: Retrieve ZIP and XLS archives with automatic caching and date-range iteration
+---
+
+ESIOS provides downloadable archives containing bulk data exports, settlement files, and raw market data. This guide shows you how to download and manage these files.
+
+## Understanding Archives
+
+Archives are different from indicators:
+
+- **Indicators**: Time-series data returned as DataFrames (JSON API)
+- **Archives**: File downloads (ZIP/XLS) containing raw data exports
+
+<Note>
+Archive files are cached in `~/.cache/esios/archives/{archive_id}/{name}_{datekey}/` to avoid re-downloading.
+</Note>
+
+## Listing Available Archives
+
+Discover what archives are available:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your_api_key")
+
+# Use local catalog (153 archives including I90, settlements)
+archives = client.archives.list(source="local")
+print(f"Total archives: {len(archives)}")
+print(archives.head())
+
+# Use API catalog (~24 archives)
+archives_api = client.archives.list(source="api")
+print(f"API archives: {len(archives_api)}")
+```
+
+The local catalog includes I90 settlement files (archive ID 34) and other critical archives not returned by the API.
+
+## Downloading a Single Date
+
+Download files for a specific date:
+
+```python
+handle = client.archives.get(34)  # I90DIA settlement files
+
+files = handle.download(date="2024-01-15")
+
+print(f"Downloaded {len(files)} files:")
+for f in files:
+    print(f"  {f}")
+```
+
+<Steps>
+
+1. The library calls `configure()` to resolve the download URL
+
+2. Checks if files are already cached for that date
+
+3. If not cached, downloads from API and extracts to cache
+
+4. Returns paths to the cached files
+
+</Steps>
+
+## Downloading a Date Range
+
+Automatically iterate through a date range:
+
+```python
+handle = client.archives.get(34)
+
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-31"
+)
+
+print(f"Downloaded {len(files)} files for January 2024")
+```
+
+The library automatically:
+
+- Detects the archive horizon (daily vs monthly)
+- Iterates day-by-day or month-by-month
+- Skips already-cached dates
+- Handles API errors gracefully (logs warning, continues)
+
+<Tip>
+For daily archives, each date gets a separate API call. The cache makes subsequent requests instant.
+</Tip>
+
+## Copying to Output Directory
+
+By default, files stay in the cache. Copy them to a working directory:
+
+```python
+handle = client.archives.get(34)
+
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-07",
+    output_dir="./data/i90"
+)
+
+# Files copied to ./data/i90/I90DIA_20240101/, ./data/i90/I90DIA_20240102/, etc.
+```
+
+This keeps the cache intact while giving you a clean working copy.
+
+## Understanding Archive Metadata
+
+After calling `configure()`, the handle has download metadata:
+
+```python
+handle = client.archives.get(34)
+handle.configure(date="2024-01-15")
+
+print(handle.name)  # e.g., "I90DIA"
+print(handle.metadata["archive"]["horizon"])  # "D" for daily
+print(handle.metadata["archive"]["archive_type"])  # "xls" or "zip"
+```
+
+You don't usually need to call `configure()` manually - `download()` does it for you.
+
+## Working with ZIP Archives
+
+Most archives are ZIP files that are automatically extracted:
+
+```python
+handle = client.archives.get(42)  # Example ZIP archive
+
+files = handle.download(date="2024-01-15")
+
+# 'files' contains paths to extracted contents
+for f in files:
+    if f.suffix == ".csv":
+        import pandas as pd
+        df = pd.read_csv(f)
+        print(df.head())
+```
+
+## Working with XLS Archives
+
+I90 settlement files (archive 34) are XLS format:
+
+```python
+handle = client.archives.get(34)
+
+files = handle.download(date="2024-01-15")
+
+# Files are .xls workbooks
+for f in files:
+    print(f"{f.name}: {f.stat().st_size / 1024:.1f} KB")
+```
+
+See the [I90 Settlement Files guide](/guides/i90-settlement-files) for parsing these workbooks.
+
+## Handling Monthly Archives
+
+Some archives have monthly granularity:
+
+```python
+handle = client.archives.get(99)  # Example monthly archive
+
+# Request full year - downloads 12 monthly files
+files = handle.download(
+    start="2024-01-01",
+    end="2024-12-31"
+)
+
+print(f"Downloaded {len(files)} monthly archives")
+```
+
+The library detects `horizon="M"` and iterates month-by-month.
+
+## Cache Behavior
+
+Archive caching works differently from indicators:
+
+<CodeGroup>
+
+```python Daily Archives
+# Cache key: YYYYMMDD
+files = handle.download(date="2024-01-15")
+# Cached at: ~/.cache/esios/archives/34/I90DIA_20240115/
+```
+
+```python Monthly Archives
+# Cache key: YYYYMM
+files = handle.download(date="2024-01-15")  # Treated as January 2024
+# Cached at: ~/.cache/esios/archives/99/NAME_202401/
+```
+
+</CodeGroup>
+
+Once cached, subsequent calls return the cached files without hitting the API.
+
+## Error Handling
+
+Date-range downloads continue on failure:
+
+```python
+handle = client.archives.get(34)
+
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-31"
+)
+
+# If Jan 15 fails (API error), the library logs a warning and continues
+# You'll get files for all successful dates
+print(f"Successfully downloaded {len(files)} files")
+```
+
+Check the logs to see which dates failed.
+
+## Convenience Method
+
+Skip the `get()` step with the manager's `download()` method:
+
+```python
+files = client.archives.download(
+    archive_id=34,
+    start="2024-01-01",
+    end="2024-01-07",
+    output_dir="./data"
+)
+
+# Equivalent to:
+handle = client.archives.get(34)
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-07",
+    output_dir="./data"
+)
+```
+
+## Date Type Parameter
+
+Specify whether dates refer to data or publication:
+
+```python
+files = handle.download(
+    date="2024-01-15",
+    date_type="datos"  # Default: data date
+)
+
+files = handle.download(
+    date="2024-01-15",
+    date_type="publicacion"  # Publication date
+)
+```
+
+<Note>
+Most use cases should use `date_type="datos"` (the default), which refers to the date the data represents.
+</Note>
+
+## Next Steps
+
+- [Parse I90 settlement files](/guides/i90-settlement-files)
+- [Configure cache location](/guides/cache-management)
+- [Work with indicator data](/guides/historical-data)

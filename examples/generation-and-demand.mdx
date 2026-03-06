@@ -1,0 +1,91 @@
+---
+title: Generation and Demand
+description: Analyze electricity generation mix and demand data from the Spanish grid
+---
+
+Analyze electricity generation mix and demand data from the Spanish grid.
+
+Reference: https://www.esios.ree.es/es/balance
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Key generation indicators
+
+| ID    | Description |
+|-------|-------------|
+| 73    | Wind generation |
+| 74    | Nuclear generation |
+| 79    | Hydro generation |
+| 10008 | Combined cycle |
+| 10010 | Solar PV generation |
+| 10063 | Total renewable generation |
+
+```python
+ids = [73, 74, 79, 10008, 10010, 10063]
+```
+
+## Fetch generation data
+
+```python
+df = client.indicators.compare(
+    ids,
+    start="2025-01-01",
+    end="2025-01-07",
+)
+df
+```
+
+Returns a DataFrame with generation by technology (in MW):
+
+```
+                           Generación programada P48 Turbinación bombeo  ...
+datetime
+2025-01-01 00:00:00+01:00                                        39.250  ...
+...
+[672 rows × 6 columns]
+```
+
+## Generation mix stacked area chart
+
+```python
+gen_cols = [c for c in df.columns if c != df.columns[-1]]
+df[gen_cols].resample("h").mean().plot.area(
+    figsize=(14, 6),
+    title="Generation Mix (MW) — January 2025",
+    alpha=0.7,
+)
+```
+
+## Daily totals
+
+```python
+df_daily = df.resample("D").mean().round(1)
+df_daily
+```
+
+Returns daily average generation by technology:
+
+```
+                           Generación programada P48 Turbinación bombeo  ...
+datetime
+2025-01-01 00:00:00+01:00                                         130.8  ...
+2025-01-02 00:00:00+01:00                                         156.1  ...
+...
+```
+
+## Export to CSV
+
+```python
+df.to_csv("generation_2025_01.csv")
+```
+
+## Next steps
+
+- [Download archive files](/examples/download-archives)
+- [Work with I90 settlement data](/examples/i90-settlement-files)

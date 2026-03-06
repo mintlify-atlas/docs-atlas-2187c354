@@ -1,0 +1,212 @@
+---
+title: 'CLI Overview'
+description: 'Command-line interface for the Spanish electricity market (ESIOS/REE) API'
+---
+
+The `esios` CLI provides a powerful interface for fetching and analyzing Spanish electricity market data from the ESIOS API.
+
+## Installation
+
+Install python-esios with CLI support:
+
+```bash
+pip install python-esios[cli]
+```
+
+## Quick Start
+
+### Authentication
+
+Set your API token (obtain from [ESIOS](https://www.esios.ree.es)):
+
+```bash
+# Option 1: Environment variable
+export ESIOS_API_KEY="your-token-here"
+
+# Option 2: Config file
+esios config set token your-token-here
+```
+
+The CLI resolves authentication in this order:
+1. `--token` flag (highest priority)
+2. Config file (`~/.config/esios/config.toml`)
+3. `ESIOS_API_KEY` environment variable
+
+### Basic Usage
+
+```bash
+# Show help
+esios --help
+
+# List available indicators
+esios indicators list
+
+# Search for indicators
+esios indicators search "price"
+
+# Get historical data
+esios indicators history 600 --start 2025-01-01 --end 2025-01-31
+```
+
+## Command Structure
+
+The CLI is organized into subcommands:
+
+```
+esios
+├── indicators   # Indicator operations
+├── archives     # Archive operations
+├── cache        # Cache management
+├── config       # Configuration management
+└── catalog      # Offline catalog of indicators and archives
+```
+
+## Common Workflows
+
+### Fetch and Export Data
+
+Get spot price data and export to CSV:
+
+```bash
+esios indicators history 600 \
+  --start 2025-01-01 \
+  --end 2025-01-31 \
+  --format csv \
+  --output spot_price.csv
+```
+
+### Data Analysis with Python Expressions
+
+The `exec` command allows you to evaluate Python expressions on fetched data:
+
+```bash
+# Calculate statistics
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.describe()"
+
+# Resample to daily averages
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.resample('D').mean()"
+
+# Compare multiple indicators
+esios indicators exec 600 10034 -s 2025-01-01 -e 2025-01-31 -x "df.corr()"
+```
+
+Available variables in expressions:
+- `df` — pandas DataFrame with the fetched data
+- `pd` — pandas module
+- `np` — numpy module
+
+### Work with Archives
+
+Download and parse I90DIA archive files:
+
+```bash
+# List available sheets in archive
+esios archives sheets 34 --date 2025-06-01
+
+# Extract curtailment data
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+
+# Aggregate by technology
+esios archives exec 34 --sheet I90DIA03 \
+  -s 2025-05-01 -e 2025-06-01 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Tecnología')['value'].sum().sort_values()"
+```
+
+### Geography Filtering
+
+Many indicators have multiple geographies. Filter by geo ID or name:
+
+```bash
+# Show metadata to see available geos
+esios indicators meta 600
+
+# Filter by geo ID
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3
+
+# Filter by geo name
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
+
+# Multiple geos
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3 --geo 4
+```
+
+### Offline Catalog
+
+The catalog provides offline access to indicator and archive metadata:
+
+```bash
+# List indicators without API call
+esios catalog list indicators
+
+# Search catalog
+esios catalog list indicators "generation"
+
+# Show detailed info
+esios catalog show indicator 600
+
+# Update catalog from API
+esios catalog refresh
+```
+
+### Cache Management
+
+The CLI caches API responses for performance:
+
+```bash
+# Check cache status
+esios cache status
+
+# Show cache location
+esios cache path
+
+# Clear specific indicator cache
+esios cache clear --indicator 600
+
+# Clear entire cache
+esios cache clear --all
+```
+
+## Output Formats
+
+Most commands support multiple output formats via the `--format` flag:
+
+- `table` (default) — Rich-formatted table for terminal display
+- `csv` — Comma-separated values
+- `json` — JSON array of records
+- `parquet` — Apache Parquet (requires `--output` path)
+
+## Global Options
+
+- `--token, -t` — Override API token for a single command
+- `--help` — Show help for any command or subcommand
+
+## Environment Variables
+
+- `ESIOS_API_KEY` — API authentication token
+
+## Configuration File
+
+Config file location: `~/.config/esios/config.toml`
+
+Example configuration:
+
+```toml
+token = "your-api-token-here"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Indicators" icon="chart-line" href="/cli/indicators">
+    Fetch and analyze indicator data
+  </Card>
+  <Card title="Archives" icon="file-zipper" href="/cli/archives">
+    Download and parse archive files
+  </Card>
+  <Card title="Cache" icon="database" href="/cli/cache">
+    Manage cached API responses
+  </Card>
+  <Card title="Catalog" icon="book" href="/cli/catalog">
+    Browse offline metadata catalog
+  </Card>
+</CardGroup>

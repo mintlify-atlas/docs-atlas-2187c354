@@ -1,0 +1,92 @@
+---
+title: Historical Data
+description: Fetch time-series data for any indicator with automatic caching
+---
+
+Fetch time-series data for any indicator. Results are cached locally as parquet files — subsequent requests only fetch missing date ranges.
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Basic query
+
+Fetch spot price (indicator 600) for January 2025:
+
+```python
+handle = client.indicators.get(600)
+df = handle.historical("2025-01-01", "2025-01-31")
+df
+```
+
+Returns:
+
+```
+                           Portugal  Francia  España  Alemania  Bélgica  Países Bajos
+datetime
+2025-01-01 00:00:00+01:00    134.49    12.36  134.49      2.16    10.62         13.62
+...
+[2976 rows × 6 columns]
+```
+
+Columns are named by geography (e.g. "España", "Portugal", "Francia"). The index is a timezone-aware `DatetimeIndex`.
+
+## Filter by geography
+
+Use `geo_ids` to request only specific countries:
+
+```python
+spain_id = handle.resolve_geo("España")
+print(f"España geo_id: {spain_id}")
+```
+
+Output:
+
+```
+España geo_id: 3
+```
+
+Fetch only Spain:
+
+```python
+df_spain = handle.historical("2025-01-01", "2025-01-07", geo_ids=[spain_id])
+df_spain
+```
+
+Returns a single-column DataFrame:
+
+```
+                           España
+datetime
+2025-01-01 00:00:00+01:00  134.49
+...
+[672 rows × 1 columns]
+```
+
+## Aggregation options
+
+The API supports time and geography aggregation:
+
+```python
+# Daily average price
+df_daily = handle.historical(
+    "2025-01-01", "2025-01-31",
+    time_trunc="day",
+)
+df_daily.head()
+```
+
+## Export to CSV
+
+```python
+df.to_csv("spot_prices_2025_01.csv")
+```
+
+## Next steps
+
+- [Work with multi-geography indicators](/examples/multi-geography-indicators)
+- [Compare multiple indicators](/examples/compare-indicators)

@@ -1,0 +1,376 @@
+---
+title: "I90 File Processing"
+description: "Parse I90DIA XLS files into structured DataFrames"
+---
+
+## Overview
+
+The `esios.processing.i90` module provides tools for parsing **I90DIA** files — daily XLS workbooks published by ESIOS containing generation, demand, and exchange data. These files have a complex structure with multiple sheets, variable time frequencies (hourly vs. quarter-hourly), and inconsistent header formats.
+
+The module automatically:
+- Detects hourly vs. quarter-hourly data
+- Normalizes three different column header formats
+- Parses dates and builds timezone-aware DatetimeIndex
+- Extracts metadata (publication date, data date, table of contents)
+
+---
+
+## I90 File Format
+
+I90DIA files are daily XLS workbooks with the naming pattern `I90DIA_YYYYMMDD.xls`. Each file contains:
+
+- **First sheet**: Table of contents listing all data sheets and their descriptions
+- **Data sheets**: Named with numeric identifiers (e.g., "3.1", "3.2") containing time-series data
+- **Metadata**: Data date and publication date in the first sheet
+
+### Time Frequencies
+
+Sheets can contain:
+- **Hourly data**: 24 periods (1–24)
+- **Quarter-hourly data**: 96 periods (1–96), representing 15-minute intervals
+
+### Column Header Formats
+
+I90 files use three different formats for time period columns:
+
+1. **Sequential integers**: `1, 2, 3, ..., 24` (hourly) or `1, 2, 3, ..., 96` (quarterly)
+2. **H-Q dash notation**: `"1-1", "1-2", "1-3", "1-4", "2-1", ...` (hour-quarter pairs)
+3. **NaN-filler format**: `[1, NaN, NaN, NaN, 2, NaN, NaN, NaN, ...]` (one label per hour, three trailing NaNs for quarters 2–4)
+
+The parser automatically detects and normalizes all three formats to sequential period indices (1–96).
+
+---
+
+## I90Book
+
+Represents an I90DIA workbook with lazy sheet loading.
+
+```python
+from esios.processing.i90 import I90Book
+
+book = I90Book("I90DIA_20250101.xls")
+sheet = book["3.1"]
+df = sheet.df
+```
+
+### Constructor
+
+```python
+I90Book(path)
+```
+
+<ParamField path="path" type="Path | str" required>
+  Path to the I90DIA XLS file.
+</ParamField>
+
+### Attributes
+
+<ParamField path="path" type="Path">
+  Path to the XLS file.
+</ParamField>
+
+<ParamField path="metadata" type="dict">
+  Dictionary containing:
+  - `date_data`: The date of the data (extracted from first sheet, row 4)
+  - `date_publication`: The publication date (extracted from first sheet, row 4)
+</ParamField>
+
+<ParamField path="table_of_contents" type="dict[str, str]">
+  Mapping of sheet names to their descriptions (e.g., `{"3.1": "Generación programada PBF", ...}`).
+</ParamField>
+
+<ParamField path="sheets" type="dict[str, I90Sheet]">
+  Dictionary of already-loaded sheets. Use `get_sheet()` or `[]` to load sheets on demand.
+</ParamField>
+
+### Methods
+
+#### get_sheet
+
+Load and preprocess a specific sheet by name (lazy — only reads on demand).
+
+```python
+sheet = book.get_sheet("3.1")
+```
+
+<ParamField path="sheet_name" type="str" required>
+  Name of the sheet to load (e.g., `"3.1"`, `"3.2"`).
+</ParamField>
+
+**Returns**: `I90Sheet` — The loaded sheet with preprocessed DataFrame.
+
+**Raises**: `KeyError` if the sheet name doesn't exist in the workbook.
+
+#### \_\_getitem\_\_
+
+Convenience syntax for `get_sheet()`:
+
+```python
+sheet = book["3.1"]  # equivalent to book.get_sheet("3.1")
+```
+
+#### from_archive (classmethod)
+
+Download I90 files from ESIOS archives and parse them into I90Book objects.
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your-token")
+archive = client.archives.get(34)  # I90DIA archive
+
+books = I90Book.from_archive(
+    archive,
+    start="2025-01-01",
+    end="2025-01-31"
+)
+```
+
+<ParamField path="archive" type="ArchiveHandle" required>
+  An `ArchiveHandle` from `client.archives.get(34)` (I90DIA archive ID is 34).
+</ParamField>
+
+<ParamField path="start" type="str" required>
+  Start date in `"YYYY-MM-DD"` format.
+</ParamField>
+
+<ParamField path="end" type="str" required>
+  End date in `"YYYY-MM-DD"` format.
+</ParamField>
+
+**Returns**: `list[I90Book]` — List of successfully parsed I90Book objects, sorted by date. Files that fail to parse are logged and skipped.
+
+### Examples
+
+#### Basic Usage
+
+```python
+from esios.processing.i90 import I90Book
+
+# Open an I90 file
+book = I90Book("I90DIA_20250101.xls")
+
+# View metadata
+print(book.metadata["date_data"])         # 2025-01-01
+print(book.metadata["date_publication"])  # 2025-01-02
+
+# View table of contents
+print(book.table_of_contents)
+# {'3.1': 'Generación programada PBF', '3.2': 'Demanda real', ...}
+
+# Load a specific sheet
+sheet = book["3.1"]
+df = sheet.df
+print(df.head())
+```
+
+#### Batch Download and Parse
+
+```python
+from esios import ESIOSClient
+from esios.processing.i90 import I90Book
+
+client = ESIOSClient(token="your-token")
+archive = client.archives.get(34)  # I90DIA archive
+
+# Download and parse January 2025 files
+books = I90Book.from_archive(
+    archive,
+    start="2025-01-01",
+    end="2025-01-31"
+)
+
+print(f"Loaded {len(books)} I90 files")
+
+# Access sheets across multiple files
+for book in books:
+    sheet = book["3.1"]
+    print(f"{book.metadata['date_data']}: {sheet.df.shape}")
+```
+
+#### Combine Data Across Multiple Files
+
+```python
+import pandas as pd
+
+# Collect sheet 3.1 from all files
+dfs = []
+for book in books:
+    sheet = book["3.1"]
+    dfs.append(sheet.df)
+
+# Concatenate into a single DataFrame
+full_df = pd.concat(dfs, axis=0).sort_index()
+print(full_df)
+```
+
+---
+
+## I90Sheet
+
+Represents a single sheet within an I90 workbook. Preprocessing automatically detects frequency and produces a DataFrame with a UTC DatetimeIndex.
+
+```python
+sheet = book["3.1"]
+print(sheet.frequency)  # "hourly" or "hourly-quarterly"
+df = sheet.df
+```
+
+### Constructor
+
+**Note**: You should not instantiate `I90Sheet` directly. Use `I90Book.get_sheet()` or `I90Book[sheet_name]` instead.
+
+### Attributes
+
+<ParamField path="sheet_name" type="str">
+  Name of the sheet (e.g., `"3.1"`).
+</ParamField>
+
+<ParamField path="df" type="pd.DataFrame | None">
+  The preprocessed DataFrame with a timezone-aware DatetimeIndex. `None` until the sheet is loaded.
+</ParamField>
+
+<ParamField path="frequency" type="str | None">
+  Detected frequency: `"hourly"` (24 periods) or `"hourly-quarterly"` (96 periods). `None` until preprocessing.
+</ParamField>
+
+<ParamField path="metadata" type="dict">
+  Reference to the parent book's metadata dictionary.
+</ParamField>
+
+<ParamField path="path" type="Path">
+  Path to the parent XLS file.
+</ParamField>
+
+### DataFrame Structure
+
+After preprocessing, `sheet.df` contains:
+- **Index**: `DatetimeIndex` with timezone `"Europe/Madrid"`, covering the data date with the detected frequency
+- **Columns**: Variable names or values from the sheet
+- **Values**: Numeric data (converted to `float`)
+
+For quarter-hourly data:
+- Period 1 → 00:00
+- Period 2 → 00:15
+- Period 96 → 23:45
+
+For hourly data:
+- Period 1 → 01:00 (Spanish convention: hour 1 = 01:00)
+- Period 24 → 24:00 (midnight of the next day)
+
+### Examples
+
+#### Inspect Sheet Properties
+
+```python
+sheet = book["3.1"]
+
+print(sheet.sheet_name)   # "3.1"
+print(sheet.frequency)    # "hourly" or "hourly-quarterly"
+print(sheet.df.shape)     # (24, N) or (96, N) depending on frequency
+print(sheet.df.index.tz)  # Europe/Madrid
+```
+
+#### Access Raw Data
+
+```python
+sheet = book["3.1"]
+df = sheet.df
+
+# Filter by time
+morning = df.between_time("06:00", "12:00")
+
+# Resample quarter-hourly to hourly
+if sheet.frequency == "hourly-quarterly":
+    hourly = df.resample("H").mean()
+```
+
+---
+
+## Frequency Detection
+
+The parser automatically detects whether a sheet contains hourly or quarter-hourly data by checking if any normalized column index exceeds 30:
+
+- **Values ≤ 24**: Hourly data (24 periods)
+- **Values > 30**: Quarter-hourly data (96 periods)
+
+Time deltas are calculated as:
+- **Hourly**: `period * 60` minutes (e.g., period 1 → 60 min = 01:00)
+- **Quarter-hourly**: `(period - 1) * 15` minutes (e.g., period 1 → 0 min = 00:00)
+
+---
+
+## Column Normalization
+
+The `_normalize_datetime_columns` method handles three formats:
+
+### 1. Sequential Integers
+
+**Input**: `[1, 2, 3, ..., 24]` or `[1, 2, 3, ..., 96]`
+
+**Output**: Unchanged (already sequential)
+
+### 2. H-Q Dash Notation
+
+**Input**: `["1-1", "1-2", "1-3", "1-4", "2-1", "2-2", ...]`
+
+**Processing**:
+1. Split on `"-"` to extract hour and quarter
+2. Convert to sequential: `(hour - 1) * 4 + quarter`
+
+**Output**: `[1, 2, 3, 4, 5, 6, ..., 96]`
+
+### 3. NaN-Filler Format
+
+**Input**: `[1, NaN, NaN, NaN, 2, NaN, NaN, NaN, 3, ...]`
+
+**Processing**:
+1. Forward-fill NaN values → `[1, 1, 1, 1, 2, 2, 2, 2, 3, ...]`
+2. Detect duplicates (same hour repeated 4 times)
+3. Assign sequential indices: `[1, 2, 3, 4, 5, 6, 7, 8, 9, ...]`
+
+**Output**: `[1, 2, 3, 4, 5, 6, ..., 96]`
+
+---
+
+## Error Handling
+
+- **Missing sheets**: `KeyError` is raised when accessing a non-existent sheet
+- **Parsing failures**: Logged as warnings and skipped in `from_archive()`
+- **Malformed sheets**: Return empty DataFrame and log error
+- **Timezone ambiguity**: DST transitions are handled with `ambiguous="infer"`
+
+---
+
+## Integration with Archives
+
+I90 files are available through the ESIOS archives API (archive ID 34):
+
+```python
+from esios import ESIOSClient
+from esios.processing.i90 import I90Book
+
+client = ESIOSClient(token="your-token")
+archive = client.archives.get(34)
+
+# Download and parse with one call
+books = I90Book.from_archive(
+    archive,
+    start="2025-01-01",
+    end="2025-01-31"
+)
+
+# Files are cached locally — re-running won't re-download
+books = I90Book.from_archive(archive, start="2025-01-01", end="2025-01-31")
+```
+
+---
+
+## Notes
+
+- Uses `python-calamine` for fast XLS parsing
+- All timestamps are in `"Europe/Madrid"` timezone
+- Sheet names are case-sensitive (e.g., `"3.1"` not `"3.1 "` with trailing space)
+- The first sheet is always loaded during `I90Book` initialization (to extract metadata)
+- Other sheets are loaded lazily only when accessed
+- Empty sheets return an empty DataFrame without raising an error

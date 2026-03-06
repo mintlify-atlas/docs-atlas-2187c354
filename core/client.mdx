@@ -1,0 +1,257 @@
+---
+title: "ESIOSClient"
+description: "Configure and manage your ESIOS API connection with automatic retries and caching"
+icon: "plug"
+---
+
+The `ESIOSClient` is your gateway to the ESIOS API. It handles authentication, HTTP requests, retries, and integrates with the caching system.
+
+## Basic Usage
+
+### Context Manager (Recommended)
+
+The recommended way to use the client is as a context manager, which automatically handles cleanup:
+
+```python
+from esios import ESIOSClient
+
+with ESIOSClient(token="your-api-key") as client:
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+    print(df)
+```
+
+### Manual Lifecycle
+
+You can also manage the client lifecycle manually:
+
+```python
+client = ESIOSClient()
+df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+client.close()
+```
+
+<Warning>
+  Always call `client.close()` when managing the lifecycle manually to properly clean up HTTP connections.
+</Warning>
+
+## Authentication
+
+The client requires an API key from [ESIOS](https://www.esios.ree.es/en/profile/access-token). You can provide it in two ways:
+
+<CodeGroup>
+
+```python Environment Variable
+import os
+os.environ["ESIOS_API_KEY"] = "your-api-key"
+
+with ESIOSClient() as client:
+    # API key read from environment
+    pass
+```
+
+```python Constructor Parameter
+with ESIOSClient(token="your-api-key") as client:
+    # API key passed explicitly
+    pass
+```
+
+</CodeGroup>
+
+<Info>
+  The client first checks for a `token` parameter, then falls back to the `ESIOS_API_KEY` environment variable.
+</Info>
+
+## Configuration Options
+
+The client accepts several configuration parameters:
+
+```python
+client = ESIOSClient(
+    token="your-api-key",           # API key (or set ESIOS_API_KEY env var)
+    timeout=30.0,                    # Request timeout in seconds (default: 30.0)
+    base_url="https://api.esios.ree.es",  # API base URL (default)
+    cache=True,                      # Enable caching (default: True)
+    cache_dir=None,                  # Cache directory (default: ~/.cache/esios)
+    cache_recent_ttl=48,            # Hours before re-fetching recent data (default: 48)
+)
+```
+
+### Timeout
+
+Controls how long to wait for API responses:
+
+```python
+# Increase timeout for slow connections
+with ESIOSClient(timeout=60.0) as client:
+    df = client.indicators.get(600).historical("2020-01-01", "2025-01-01")
+```
+
+### Cache Configuration
+
+See the [Caching](/core/caching) page for detailed cache configuration options.
+
+## Client Managers
+
+The client provides access to three managers for different API resources:
+
+<CardGroup cols={3}>
+  <Card title="indicators" icon="chart-line" href="/core/indicators">
+    Access time-series indicator data
+  </Card>
+  <Card title="archives" icon="file-zipper" href="/core/archives">
+    Download historical archive files
+  </Card>
+  <Card title="offer_indicators" icon="handshake">
+    Query market offer indicators
+  </Card>
+</CardGroup>
+
+### Accessing Managers
+
+```python
+with ESIOSClient() as client:
+    # Indicator operations
+    handle = client.indicators.get(600)
+    df = handle.historical("2025-01-01", "2025-01-07")
+    
+    # Archive operations
+    files = client.archives.download(1, date="2025-01-01")
+    
+    # Offer indicator operations
+    offers = client.offer_indicators.list()
+```
+
+## HTTP Methods
+
+The client exposes low-level HTTP methods for advanced use:
+
+### GET Requests
+
+```python
+with ESIOSClient() as client:
+    # Get raw JSON response
+    data = client.get("indicators/600", params={"locale": "es"})
+    print(data["indicator"])
+```
+
+### Download Files
+
+For downloading binary content (used internally by archives):
+
+```python
+with ESIOSClient() as client:
+    # Download raw bytes from absolute URL
+    content = client.download("https://api.esios.ree.es/archives/1/download")
+```
+
+<Note>
+  The `download()` method automatically follows 307 redirects to S3 presigned URLs without sending API keys.
+</Note>
+
+## Automatic Retries
+
+The client automatically retries failed requests using exponential backoff:
+
+- **Max retries**: 3 attempts
+- **Initial wait**: 2 seconds
+- **Max wait**: 10 seconds
+- **Retry conditions**:
+  - Network errors (connection failures, timeouts)
+  - API errors (5xx server errors)
+  - **Never retries**: Authentication errors (401, 403)
+
+From `src/esios/client.py:110-115`:
+
+```python
+@retry(
+    retry=retry_if_exception_type((APIResponseError, NetworkError)),
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_exponential(min=RETRY_MIN_WAIT, max=RETRY_MAX_WAIT),
+    reraise=True,
+)
+def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict:
+    # ...
+```
+
+## Error Handling
+
+The client raises specific exceptions for different failure scenarios:
+
+```python
+from esios import ESIOSClient, ESIOSError, AuthenticationError, NetworkError
+
+try:
+    with ESIOSClient() as client:
+        df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+except AuthenticationError:
+    print("Invalid API key")
+except NetworkError as e:
+    print(f"Connection failed: {e}")
+except ESIOSError as e:
+    print(f"ESIOS error: {e}")
+```
+
+<CardGroup cols={2}>
+  <Card title="ESIOSError" icon="triangle-exclamation">
+    Base exception for all ESIOS errors
+  </Card>
+  <Card title="AuthenticationError" icon="lock">
+    Invalid or missing API key (401, 403)
+  </Card>
+  <Card title="NetworkError" icon="wifi-slash">
+    Connection failures and timeouts
+  </Card>
+  <Card title="APIResponseError" icon="server">
+    HTTP errors from the API (4xx, 5xx)
+  </Card>
+</CardGroup>
+
+## AsyncESIOSClient
+
+For asynchronous applications, use `AsyncESIOSClient`:
+
+```python
+import asyncio
+from esios import AsyncESIOSClient
+
+async def fetch_data():
+    async with AsyncESIOSClient(token="your-api-key") as client:
+        data = await client.get("indicators/600")
+        return data
+
+data = asyncio.run(fetch_data())
+```
+
+<Warning>
+  The async client currently provides low-level HTTP methods only. High-level managers (`indicators`, `archives`) are not yet available.
+</Warning>
+
+## Catalog Access
+
+The client also provides access to an offline catalog of indicators and archives:
+
+```python
+with ESIOSClient() as client:
+    # Browse offline catalog (YAML-based, no API calls)
+    catalog = client.catalog.indicators()
+    print(catalog.head())
+```
+
+See the [Catalog](/cli/catalog) guide for more details.
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Indicators" icon="chart-line" href="/core/indicators">
+    Learn about IndicatorHandle and historical data
+  </Card>
+  <Card title="Caching" icon="database" href="/core/caching">
+    Configure the local parquet cache
+  </Card>
+  <Card title="Archives" icon="file-zipper" href="/core/archives">
+    Download I90 and settlement files
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first query
+  </Card>
+</CardGroup>

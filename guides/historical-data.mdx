@@ -1,0 +1,201 @@
+---
+title: Fetching Historical Data
+description: Retrieve time-series data for indicators with intelligent caching and gap detection
+---
+
+The `historical()` method fetches time-series data for any indicator, automatically handling caching, chunking, and multi-geography pivoting.
+
+## Basic Usage
+
+Retrieve data for a date range:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your_api_key")
+
+# Get an indicator handle
+handle = client.indicators.get(1001)  # Demanda real
+
+# Fetch historical data
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31"
+)
+
+print(df.head())
+```
+
+The returned DataFrame has a `DatetimeIndex` localized to `Europe/Madrid` timezone.
+
+## How Caching Works
+
+Data is automatically cached locally as parquet files:
+
+<Steps>
+
+1. **First request** fetches data from the API and stores it in `~/.cache/esios/indicators/{id}/data.parquet`
+
+2. **Subsequent requests** read from cache and only fetch missing date ranges
+
+3. **Gap detection** identifies which dates are missing per geography column
+
+4. **Recent data** within 48 hours is always re-fetched (configurable with `recent_ttl_hours`)
+
+</Steps>
+
+<Tip>
+The cache uses a wide-format layout where columns are geo_ids during storage, then renamed to human-readable geo_names when returned to you.
+</Tip>
+
+## Date Range Handling
+
+```python
+handle = client.indicators.get(600)
+
+# Different date formats accepted
+df1 = handle.historical("2024-01-01", "2024-01-31")
+df2 = handle.historical("2024-01-01T00:00:00", "2024-01-31T23:59:59")
+
+# Works with pandas Timestamps
+import pandas as pd
+start = pd.Timestamp("2024-01-01")
+end = pd.Timestamp("2024-01-31")
+df3 = handle.historical(start, end)
+```
+
+<Note>
+Requests exceeding approximately 3 weeks are automatically chunked into smaller API calls to avoid timeouts. The chunking is transparent - you'll receive a single DataFrame.
+</Note>
+
+## Working with Large Date Ranges
+
+Fetching years of data is efficient thanks to automatic chunking:
+
+```python
+# Fetch an entire year - automatically chunked
+handle = client.indicators.get(1001)
+df = handle.historical(
+    start="2023-01-01",
+    end="2023-12-31"
+)
+
+print(f"Retrieved {len(df)} hourly records")
+# Output: Retrieved 8760 hourly records
+```
+
+## Filtering by Geography
+
+For indicators with multiple geographies (like indicator 600), filter to specific countries:
+
+```python
+handle = client.indicators.get(600)
+
+# Fetch only Spain and Portugal
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    geo_ids=[3, 8741]  # España, Portugal
+)
+
+print(df.columns)
+# Output: Index(['España', 'Portugal'], dtype='object')
+```
+
+See the [Multi-Geography guide](/guides/multi-geography) for more details.
+
+## Advanced Parameters
+
+<CodeGroup>
+
+```python Locale
+# Get indicator names and descriptions in English
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    locale="en"
+)
+```
+
+```python Time Aggregation
+# Request daily aggregation from the API
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    time_agg="sum"  # or "average", "min", "max"
+)
+
+# Note: Using time_agg disables caching
+```
+
+```python Geographic Aggregation
+# Aggregate across geographies
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    geo_agg="sum",
+    geo_ids=[3, 8741]
+)
+```
+
+</CodeGroup>
+
+<Warning>
+Using `time_agg` or `geo_agg` parameters disables local caching since the API performs the aggregation. Every request will hit the API.
+</Warning>
+
+## Understanding the Output Format
+
+### Single-Geography Indicators
+
+Indicators with a single value per timestamp use the indicator ID as the column name:
+
+```python
+handle = client.indicators.get(1001)
+df = handle.historical("2024-01-01", "2024-01-07")
+
+print(df.columns)
+# Output: Index(['1001'], dtype='object')
+```
+
+### Multi-Geography Indicators
+
+Indicators with multiple geographies pivot to wide format with geography names as columns:
+
+```python
+handle = client.indicators.get(600)
+df = handle.historical("2024-01-01", "2024-01-07")
+
+print(df.columns)
+# Output: Index(['España', 'Francia', 'Portugal', ...], dtype='object')
+```
+
+## Handling Cache Location
+
+Cache is stored in `~/.cache/esios/` by default:
+
+```python
+import os
+from pathlib import Path
+
+# Check cache location
+print(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache") / "esios")
+
+# Configure custom cache directory
+from esios import ESIOSClient, CacheConfig
+
+config = CacheConfig(
+    enabled=True,
+    cache_dir="/custom/cache/path"
+)
+
+client = ESIOSClient(token="your_api_key", cache_config=config)
+```
+
+See the [Cache Management guide](/guides/cache-management) for more control.
+
+## Next Steps
+
+- [Filter data by geography](/guides/multi-geography)
+- [Compare multiple indicators](/api/indicators-manager)
+- [Configure cache behavior](/guides/cache-management)

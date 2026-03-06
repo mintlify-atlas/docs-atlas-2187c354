@@ -1,0 +1,86 @@
+---
+title: Search Indicators
+description: Browse and search the full catalog of ESIOS indicators
+---
+
+Browse and search the full catalog of ESIOS indicators.
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Full catalog
+
+`client.indicators.list()` returns the complete indicator catalog as a DataFrame:
+
+```python
+df = client.indicators.list()
+print(f"Total indicators: {len(df)}")
+df.head(10)
+```
+
+Output:
+
+```
+Total indicators: 2037
+```
+
+## Search by name
+
+Use `search()` for case-insensitive substring matching:
+
+```python
+client.indicators.search("precio")
+```
+
+Returns 354 indicators containing "precio" (price).
+
+```python
+client.indicators.search("demanda")
+```
+
+Returns 225 indicators related to demand.
+
+## Inspect a specific indicator
+
+`get()` returns a handle with metadata and the `.historical()` method:
+
+```python
+handle = client.indicators.get(600)
+print(f"ID:   {handle.id}")
+print(f"Name: {handle.name}")
+```
+
+Output:
+
+```
+ID:   600
+Name: Precio mercado SPOT Diario
+```
+
+### Available geographies
+
+```python
+handle.geos_dataframe()
+```
+
+Returns:
+
+```
+   geo_id      geo_name
+0       1      Portugal
+1       2       Francia
+2       3        España
+3    8826      Alemania
+4    8827       Bélgica
+5    8828  Países Bajos
+```
+
+## Next steps
+
+- [Fetch historical data for an indicator](/examples/historical-data)
+- [Compare multiple indicators](/examples/compare-indicators)

@@ -1,0 +1,304 @@
+---
+title: I90 Settlement Files
+description: Parse and extract data from I90DIA settlement workbooks
+---
+
+I90 files are daily settlement reports published by REE, containing detailed energy market data. The library provides specialized parsing to extract DataFrames from these complex XLS workbooks.
+
+## What are I90 Files?
+
+I90DIA files are multi-sheet Excel workbooks (`.xls`) published daily with:
+
+- Settlement data and adjustments
+- Generation by technology and province
+- Demand and consumption breakdowns
+- Imbalances and deviations
+- Market prices and tariffs
+
+Each file contains 50+ sheets with hierarchical data structures.
+
+## Downloading I90 Files
+
+I90 files are Archive ID 34:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your_api_key")
+
+# Get the I90DIA archive handle
+archive = client.archives.get(34)
+
+# Download a single day
+files = archive.download(date="2024-01-15")
+print(files[0])  # Path to I90DIA_20240115.xls
+
+# Download a date range
+files = archive.download(
+    start="2024-01-01",
+    end="2024-01-31"
+)
+print(f"Downloaded {len(files)} I90 files")
+```
+
+<Note>
+Downloads are cached in `~/.cache/esios/archives/34/I90DIA_YYYYMMDD/`. Subsequent calls return the cached files instantly.
+</Note>
+
+## Opening an I90 Workbook
+
+Use the `I90Book` class to parse an I90 file:
+
+```python
+from esios.processing.i90 import I90Book
+from pathlib import Path
+
+# Open from a file path
+book = I90Book("/path/to/I90DIA_20240115.xls")
+
+print(f"File: {book.path.name}")
+print(f"Data date: {book.metadata['date_data']}")
+print(f"Publication date: {book.metadata['date_publication']}")
+```
+
+The workbook opens lazily - sheets are only parsed when accessed.
+
+## Viewing the Table of Contents
+
+I90 files include a table of contents describing each sheet:
+
+```python
+book = I90Book("/path/to/I90DIA_20240115.xls")
+
+# View all available sheets
+for sheet_name, description in book.table_of_contents.items():
+    print(f"{sheet_name}: {description}")
+
+# Output:
+# 3.1: Energía total del sistema por tecnologías
+# 3.2: Energía total del sistema por provincias
+# 3.3: Energía horaria por tecnologías
+# ...
+```
+
+<Tip>
+The table of contents helps you identify which sheet contains the data you need. Sheet names like "3.1", "3.2" correspond to sections in the official I90 documentation.
+</Tip>
+
+## Extracting a Sheet
+
+Access individual sheets by name:
+
+```python
+book = I90Book("/path/to/I90DIA_20240115.xls")
+
+# Get a specific sheet
+sheet = book["3.1"]  # Energía total por tecnologías
+
+print(f"Sheet: {sheet.sheet_name}")
+print(f"Frequency: {sheet.frequency}")
+print(f"DataFrame shape: {sheet.df.shape}")
+
+# Access the data
+df = sheet.df
+print(df.head())
+```
+
+The sheet automatically:
+
+- Detects hourly vs quarter-hourly frequency
+- Normalizes column headers to datetime
+- Handles DST transitions (Europe/Madrid timezone)
+- Pivots to a tidy format with `DatetimeIndex`
+
+## Understanding Sheet Structure
+
+I90 sheets have complex layouts:
+
+### Hourly Data
+
+Columns represent hours 1-24 (or 1-25 during DST transitions):
+
+```python
+sheet = book["3.1"]
+df = sheet.df
+
+print(df.index)  # DatetimeIndex with hourly timestamps
+print(df.columns)  # Technology names or other variables
+```
+
+### Quarter-Hourly Data
+
+Some sheets have 15-minute resolution (96 periods):
+
+```python
+sheet = book["3.3"]
+print(sheet.frequency)  # "hourly-quarterly"
+
+df = sheet.df
+print(len(df.index))  # Up to 96 timestamps
+```
+
+## Working with Multi-Variable Sheets
+
+Sheets with multiple variables use a `MultiIndex`:
+
+```python
+sheet = book["3.1"]
+df = sheet.df
+
+if isinstance(df.columns, pd.MultiIndex):
+    # Access specific variable
+    technology_data = df.xs("Carbón", level="variable", axis=1)
+    print(technology_data.head())
+else:
+    # Single variable sheet
+    print(df.head())
+```
+
+## Batch Processing Multiple Files
+
+Process a date range of I90 files:
+
+```python
+from esios.processing.i90 import I90Book
+import pandas as pd
+
+archive = client.archives.get(34)
+files = archive.download(
+    start="2024-01-01",
+    end="2024-01-07"
+)
+
+# Extract sheet 3.1 from all files
+all_data = []
+
+for file in files:
+    try:
+        book = I90Book(file)
+        sheet = book["3.1"]
+        all_data.append(sheet.df)
+    except Exception as e:
+        print(f"Failed to parse {file.name}: {e}")
+
+# Combine into single DataFrame
+if all_data:
+    combined = pd.concat(all_data, axis=0).sort_index()
+    print(f"Combined shape: {combined.shape}")
+    print(combined.head())
+```
+
+## Using the Convenience Method
+
+Load I90 files directly from an archive handle:
+
+```python
+from esios.processing.i90 import I90Book
+
+archive = client.archives.get(34)
+
+# Download and parse in one step
+books = I90Book.from_archive(
+    archive,
+    start="2024-01-01",
+    end="2024-01-07"
+)
+
+print(f"Loaded {len(books)} workbooks")
+
+# Access sheets from each book
+for book in books:
+    sheet = book["3.1"]
+    print(f"{book.path.name}: {sheet.df.shape}")
+```
+
+This method:
+
+- Downloads files (or uses cache)
+- Parses each into an `I90Book`
+- Handles parse failures gracefully (logs warning, skips file)
+- Returns sorted list of successfully parsed books
+
+## Handling Parse Errors
+
+Some I90 files have irregular layouts. The parser logs errors:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.WARNING)
+
+book = I90Book("/path/to/problematic_file.xls")
+
+try:
+    sheet = book["3.1"]
+    if sheet.df.empty:
+        print("Sheet parsed but returned empty DataFrame")
+    else:
+        print(f"Successfully parsed: {sheet.df.shape}")
+except KeyError:
+    print("Sheet '3.1' not found in this file")
+except Exception as e:
+    print(f"Parse error: {e}")
+```
+
+## Advanced: Sheet Internals
+
+Access raw sheet data before preprocessing:
+
+```python
+sheet = book["3.1"]
+
+# Raw cell values as numpy array
+print(sheet.rows.shape)
+
+# Frequency detection result
+print(sheet.frequency)  # "hourly" or "hourly-quarterly"
+
+# Original workbook metadata
+print(sheet.metadata)
+```
+
+## Example: Daily Generation Report
+
+Extract total generation by technology:
+
+```python
+from esios import ESIOSClient
+from esios.processing.i90 import I90Book
+import pandas as pd
+
+client = ESIOSClient(token="your_api_key")
+archive = client.archives.get(34)
+
+books = I90Book.from_archive(
+    archive,
+    start="2024-01-01",
+    end="2024-01-31"
+)
+
+# Extract sheet 3.1 from all books
+monthly_gen = []
+
+for book in books:
+    sheet = book["3.1"]
+    monthly_gen.append(sheet.df)
+
+if monthly_gen:
+    full_month = pd.concat(monthly_gen).sort_index()
+    
+    # Aggregate to daily totals
+    daily = full_month.resample("D").sum()
+    
+    print("Daily generation by technology (MWh):")
+    print(daily.head(10))
+    
+    # Plot
+    daily.plot(kind="bar", stacked=True, figsize=(14, 6))
+```
+
+## Next Steps
+
+- [Understand archive caching](/guides/cache-management)
+- [Download other archive types](/guides/downloading-archives)
+- [Compare I90 data with indicators](/guides/historical-data)

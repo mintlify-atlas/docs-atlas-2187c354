@@ -1,0 +1,220 @@
+---
+title: OfferIndicatorsManager
+description: Manager for listing and retrieving offer indicator data from ESIOS
+---
+
+The `OfferIndicatorsManager` provides access to electricity market offer indicators with automatic chunking and parquet caching.
+
+## OfferIndicatorsManager
+
+Access via `client.offer_indicators`.
+
+### list()
+
+List all available offer indicators as a DataFrame.
+
+```python
+df = client.offer_indicators.list()
+print(df[["name", "description"]].head())
+```
+
+**Returns:** `pd.DataFrame` with columns:
+- `id` — Offer indicator ID
+- `name` — Full indicator name
+- `description` — HTML-stripped description
+- Additional metadata fields
+
+**Note:** Unlike regular indicators, offer indicators do not support catalog caching.
+
+### get(indicator_id)
+
+Get a specific offer indicator by ID and return a handle for data retrieval.
+
+<ParamField path="indicator_id" type="int" required>
+  Unique offer indicator identifier
+</ParamField>
+
+```python
+handle = client.offer_indicators.get(25)
+```
+
+**Returns:** `OfferIndicatorHandle` instance with metadata and data retrieval methods.
+
+---
+
+## OfferIndicatorHandle
+
+Returned by `OfferIndicatorsManager.get()`. Provides metadata access and historical data retrieval for a specific offer indicator.
+
+### Attributes
+
+<ResponseField name="id" type="int">
+  Offer indicator ID
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Offer indicator name
+</ResponseField>
+
+<ResponseField name="metadata" type="dict">
+  Raw API metadata (excluding `values`)
+</ResponseField>
+
+<ResponseField name="indicator" type="OfferIndicator">
+  Parsed offer indicator model
+</ResponseField>
+
+### historical(start, end, \*, locale="es")
+
+Fetch historical values as a DataFrame with timezone-aware DatetimeIndex.
+
+<ParamField path="start" type="str" required>
+  Start date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="end" type="str" required>
+  End date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="locale" type="str" default="es">
+  Response language (`"es"` or `"en"`)
+</ParamField>
+
+```python
+handle = client.offer_indicators.get(25)
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-07",
+)
+```
+
+**Returns:** `pd.DataFrame` with:
+- DatetimeIndex (timezone-aware, Europe/Madrid)
+- `value` column with offer indicator values
+- Additional columns may include `geo_id`, `geo_name` if applicable
+
+**Features:**
+- Automatically chunks requests in 3-day windows (shorter than regular indicators)
+- Uses local parquet cache when enabled
+- Only fetches missing date ranges from API
+- Handles duplicates by keeping latest values
+
+**Note:** Offer indicators use shorter chunk sizes (3 days) compared to regular indicators (~3 weeks) due to larger response sizes.
+
+---
+
+## Example Usage
+
+### List offer indicators
+
+```python
+import esios
+
+client = esios.ESIOSClient(token="your-token")
+
+# List all offer indicators
+df = client.offer_indicators.list()
+print(df.head())
+```
+
+### Get single offer indicator data
+
+```python
+# Get offer indicator handle
+handle = client.offer_indicators.get(25)
+print(f"Name: {handle.name}")
+
+# Fetch historical data
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-07",
+)
+
+print(df.head())
+print(f"Shape: {df.shape}")
+```
+
+### Week of data
+
+```python
+handle = client.offer_indicators.get(25)
+
+# Fetch a week (will make 3 requests: day 1-3, 4-6, 7)
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-07",
+)
+
+print(df.describe())
+```
+
+### Month of data with caching
+
+```python
+# First request fetches from API and caches
+handle = client.offer_indicators.get(25)
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+)
+
+# Second request uses cache
+df_cached = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+)
+
+# Partial overlap: only fetches missing days
+df_extended = handle.historical(
+    start="2024-01-15",
+    end="2024-02-15",
+)
+```
+
+### Access metadata
+
+```python
+handle = client.offer_indicators.get(25)
+
+print(f"ID: {handle.id}")
+print(f"Name: {handle.name}")
+print(f"Metadata: {handle.metadata}")
+```
+
+### Compare offer indicators
+
+```python
+# Manually fetch and merge multiple offer indicators
+import pandas as pd
+
+handles = [
+    client.offer_indicators.get(25),
+    client.offer_indicators.get(26),
+]
+
+dfs = []
+for handle in handles:
+    df = handle.historical("2024-01-01", "2024-01-07")
+    df = df.rename(columns={"value": handle.name})
+    dfs.append(df)
+
+result = pd.concat(dfs, axis=1)
+print(result.head())
+```
+
+## Differences from Regular Indicators
+
+Offer indicators differ from regular indicators in several ways:
+
+| Feature | Regular Indicators | Offer Indicators |
+|---------|-------------------|------------------|
+| Chunk size | ~21 days | 3 days |
+| Geography support | Yes (multi-geo pivoting) | Limited |
+| Catalog caching | Yes | No |
+| Metadata caching | Yes | No |
+| Aggregation support | Yes (`time_agg`, `geo_agg`) | No |
+| Compare method | Yes | No |
+
+**Use regular indicators** for standard market data like prices, demand, and generation.
+
+**Use offer indicators** for detailed offer data that requires more granular chunking.

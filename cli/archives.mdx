@@ -1,0 +1,346 @@
+---
+title: 'archives'
+description: 'CLI commands for downloading and parsing ESIOS archives'
+---
+
+The `archives` subcommand provides operations for listing, downloading, and parsing ESIOS archive files (such as I90DIA reports).
+
+## Commands
+
+### list
+
+List all available ESIOS archives.
+
+```bash
+esios archives list [OPTIONS]
+```
+
+**Options:**
+
+- `--token, -t TEXT` — ESIOS API key (overrides config/env)
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json` (default: `table`)
+
+**Examples:**
+
+```bash
+# List all archives
+esios archives list
+
+# Export to CSV
+esios archives list --format csv
+
+# JSON output
+esios archives list --format json
+```
+
+**Example Output:**
+
+```
+┌─────┬─────────┬────────────────────────────────┬──────────┐
+│ ID  │ Name    │ Description                    │ Horizon  │
+├─────┼─────────┼────────────────────────────────┼──────────┤
+│ 34  │ I90DIA  │ Daily I90 (curtailments, PBF)  │ daily    │
+│ 35  │ I90MEN  │ Monthly I90                    │ monthly  │
+│ ... │ ...     │ ...                            │ ...      │
+└─────┴─────────┴────────────────────────────────┴──────────┘
+Showing 50 of 67 rows
+```
+
+---
+
+### download
+
+Download archive files for a specific date or date range.
+
+```bash
+esios archives download ARCHIVE_ID [OPTIONS]
+```
+
+**Arguments:**
+
+- `ARCHIVE_ID` — Archive ID (required)
+
+**Options:**
+
+- `--date, -d TEXT` — Single date in `YYYY-MM-DD` format
+- `--start, -s TEXT` — Start date in `YYYY-MM-DD` format (requires `--end`)
+- `--end, -e TEXT` — End date in `YYYY-MM-DD` format (requires `--start`)
+- `--output, -o TEXT` — Output directory (default: current directory `.`)
+- `--token, -t TEXT` — ESIOS API key
+
+**Note:** You must provide either `--date` or both `--start` and `--end`.
+
+**Examples:**
+
+```bash
+# Download archive for a single day
+esios archives download 34 --date 2025-06-01
+
+# Download for a date range
+esios archives download 34 --start 2025-06-01 --end 2025-06-05
+
+# Specify output directory
+esios archives download 34 --date 2025-06-01 --output ./data
+
+# Using short flags
+esios archives download 34 -d 2025-06-01 -o ./downloads
+```
+
+**Example Output:**
+
+```
+Download complete → ./data
+```
+
+Downloaded files are automatically cached for future use.
+
+---
+
+### sheets
+
+List available sheets (table of contents) in an archive file. This is useful for discovering what data is available before parsing.
+
+```bash
+esios archives sheets ARCHIVE_ID [OPTIONS]
+```
+
+**Arguments:**
+
+- `ARCHIVE_ID` — Archive ID (e.g., 34 for I90DIA)
+
+**Options:**
+
+- `--date, -d TEXT` — Single date in `YYYY-MM-DD` format
+- `--start, -s TEXT` — Start date (requires `--end`)
+- `--end, -e TEXT` — End date (requires `--start`)
+- `--token, -t TEXT` — ESIOS API key
+
+**Note:** You must provide either `--date` or both `--start` and `--end`. The command downloads and parses the first file to show available sheets.
+
+**Examples:**
+
+```bash
+# List sheets for a single day
+esios archives sheets 34 --date 2025-06-01
+
+# Using date range (shows first file)
+esios archives sheets 34 --start 2025-06-01 --end 2025-06-01
+```
+
+**Example Output:**
+
+```
+┌────────────────────────────────────────────┐
+│ Sheets in I90DIA_2025-06-01.xlsx           │
+├─────────────┬──────────────────────────────┤
+│ Sheet       │ Description                  │
+├─────────────┼──────────────────────────────┤
+│ I90DIA03    │ Curtailments (Bajar/Subir)   │
+│ I90DIA26    │ PBF generation program       │
+│ I90DIA45    │ System adjustments           │
+│ ...         │ ...                          │
+└─────────────┴──────────────────────────────┘
+```
+
+---
+
+### exec
+
+Download archive files, parse a specific sheet, and evaluate a Python expression on the data. This provides powerful data extraction and analysis capabilities for archive files.
+
+```bash
+esios archives exec ARCHIVE_ID [OPTIONS]
+```
+
+**Arguments:**
+
+- `ARCHIVE_ID` — Archive ID (e.g., 34 for I90DIA)
+
+**Options:**
+
+- `--sheet TEXT` — Sheet name to extract (e.g., `I90DIA03`, `I90DIA26`) (required)
+- `--date, -d TEXT` — Single date in `YYYY-MM-DD` format
+- `--start, -s TEXT` — Start date (requires `--end`)
+- `--end, -e TEXT` — End date (requires `--start`)
+- `--expr, -x TEXT` — Python expression to evaluate (default: `"df"`)
+- `--token, -t TEXT` — ESIOS API key
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json` (default: `table`)
+- `--output, -o TEXT` — Output file path
+
+**Note:** You must provide either `--date` or both `--start` and `--end`.
+
+**Available Variables:**
+
+In the expression context, you have access to:
+
+- `df` — pandas DataFrame with the parsed sheet data
+- `pd` — pandas module
+- `np` — numpy module
+
+**Examples:**
+
+```bash
+# Show curtailment data for a single day
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+
+# Curtailment by technology over a month
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-01 -e 2025-06-01 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Tecnología')['value'].sum().sort_values()"
+
+# Export PBF generation program to CSV
+esios archives exec 34 --sheet I90DIA26 --date 2025-06-01 -f csv -o pbf.csv
+
+# Descriptive statistics
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 -x "df.describe()"
+
+# Filter and aggregate
+esios archives exec 34 --sheet I90DIA03 -s 2025-01-01 -e 2025-01-31 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Tecnología')['value'].sum()"
+
+# Export filtered data
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 \
+  -x "df[df['Sentido']=='Bajar']" \
+  --format csv --output curtailments.csv
+```
+
+**Example Output:**
+
+```
+┌─────────────────────┬─────────────┬──────────┬──────────┐
+│ datetime            │ Tecnología  │ Sentido  │ value    │
+├─────────────────────┼─────────────┼──────────┼──────────┤
+│ 2025-06-01 00:00:00 │ Eólica      │ Bajar    │ 234.5    │
+│ 2025-06-01 00:00:00 │ Solar       │ Bajar    │ 0.0      │
+│ 2025-06-01 01:00:00 │ Eólica      │ Bajar    │ 189.2    │
+│ ...                 │ ...         │ ...      │ ...      │
+└─────────────────────┴─────────────┴──────────┴──────────┘
+Showing 100 of 1247 rows
+```
+
+**How It Works:**
+
+1. Downloads archive files for the specified date range (cached)
+2. Parses the requested sheet from each file using `I90Book`
+3. Concatenates DataFrames from all files
+4. Evaluates the Python expression on the combined data
+5. Outputs in the requested format
+
+---
+
+## Archive Types
+
+### I90DIA (Archive ID: 34)
+
+Daily I90 reports containing:
+
+- **I90DIA03** — Curtailments (renewable energy curtailments by technology and direction)
+- **I90DIA26** — PBF (Base Forecast Program) generation program
+- **I90DIA45** — System adjustments
+- And many more sheets...
+
+Use `esios archives sheets 34 --date YYYY-MM-DD` to see all available sheets.
+
+### I90MEN (Archive ID: 35)
+
+Monthly I90 reports with aggregated data.
+
+## Common Workflows
+
+### Discover Available Data
+
+```bash
+# Step 1: List all archives
+esios archives list
+
+# Step 2: List sheets in a specific archive
+esios archives sheets 34 --date 2025-06-01
+
+# Step 3: Extract and explore a sheet
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+```
+
+### Analyze Curtailments
+
+```bash
+# Total curtailments by technology (month)
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-01 -e 2025-05-31 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Tecnología')['value'].sum().sort_values(ascending=False)"
+
+# Daily curtailment totals
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-01 -e 2025-05-31 \
+  -x "df[df['Sentido']=='Bajar'].resample('D')['value'].sum()"
+
+# Wind vs solar curtailment comparison
+esios archives exec 34 --sheet I90DIA03 -s 2025-01-01 -e 2025-12-31 \
+  -x "df[df['Sentido']=='Bajar'].groupby('Tecnología')['value'].sum()[['Eólica', 'Solar']]"
+```
+
+### Export for Further Analysis
+
+```bash
+# Export raw data to CSV
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-01 -e 2025-05-31 \
+  --format csv --output i90_curtailments.csv
+
+# Export aggregated data to JSON
+esios archives exec 34 --sheet I90DIA03 -s 2025-05-01 -e 2025-05-31 \
+  -x "df.groupby('Tecnología')['value'].sum()" \
+  --format json --output tech_totals.json
+```
+
+### Time-Based Analysis
+
+```bash
+# Hourly patterns
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 \
+  -x "df[df['Sentido']=='Bajar'].groupby(df.index.hour)['value'].mean()"
+
+# Weekly aggregation
+esios archives exec 34 --sheet I90DIA03 -s 2025-01-01 -e 2025-12-31 \
+  -x "df[df['Sentido']=='Bajar'].resample('W')['value'].sum()"
+```
+
+## Performance and Caching
+
+Archive files are automatically cached after the first download:
+
+```bash
+# First run: downloads from API
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+
+# Subsequent runs: served from cache (fast!)
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01 -x "df.describe()"
+
+# Check cache status
+esios cache status
+
+# Clear archive cache if needed
+esios cache clear --endpoint archives --indicator 34
+```
+
+## Error Handling
+
+### Sheet Not Found
+
+If you specify an invalid sheet name, the command shows available sheets:
+
+```bash
+esios archives exec 34 --sheet INVALID --date 2025-06-01
+# Error: Sheet 'INVALID' not found in I90DIA_2025-06-01.xlsx.
+# Available sheets: I90DIA03, I90DIA26, I90DIA45, ...
+```
+
+### Date Range Validation
+
+Both `--date` or `--start`+`--end` are required:
+
+```bash
+esios archives download 34
+# Error: Provide --date or both --start and --end.
+```
+
+## See Also
+
+- [Indicators](/cli/indicators) — Work with indicator data
+- [Cache](/cli/cache) — Manage cached files
+- [Catalog](/cli/catalog) — Browse offline archive metadata

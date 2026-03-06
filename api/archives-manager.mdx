@@ -1,0 +1,317 @@
+---
+title: ArchivesManager
+description: Manager for discovering and downloading archive files from ESIOS
+---
+
+The `ArchivesManager` provides access to ZIP and XLS archive files with intelligent caching and automatic date-range iteration.
+
+## ArchivesManager
+
+Access via `client.archives`.
+
+### list(\*, source="local")
+
+List all available archives as a DataFrame.
+
+<ParamField path="source" type="str" default="local">
+  Data source:
+  - `"local"` — Returns full static catalog (153 archives including I90, settlements, etc.)
+  - `"api"` — Queries ESIOS API (returns only ~24 archives)
+</ParamField>
+
+```python
+df = client.archives.list()
+print(df[["name", "horizon"]].head())
+```
+
+**Returns:** `pd.DataFrame` with columns:
+- `id` (index)
+- `name` — Archive name
+- `horizon` — Time granularity (`"D"` for daily, `"M"` for monthly)
+- `archive_type` — File format (`"zip"` or `"xls"`)
+- Additional metadata fields
+
+### get(archive_id)
+
+Get a specific archive by ID and return a handle for downloading.
+
+<ParamField path="archive_id" type="int" required>
+  Unique archive identifier
+</ParamField>
+
+```python
+handle = client.archives.get(214)
+```
+
+**Returns:** `ArchiveHandle` instance with metadata and download methods.
+
+### download(archive_id, \*\*kwargs)
+
+Convenience method combining `get()` and `download()` in one call.
+
+<ParamField path="archive_id" type="int" required>
+  Archive identifier
+</ParamField>
+
+<ParamField path="date" type="str">
+  Single date (YYYY-MM-DD format) — mutually exclusive with `start`/`end`
+</ParamField>
+
+<ParamField path="start" type="str">
+  Start date (YYYY-MM-DD) — requires `end`
+</ParamField>
+
+<ParamField path="end" type="str">
+  End date (YYYY-MM-DD) — requires `start`
+</ParamField>
+
+<ParamField path="output_dir" type="str | Path">
+  Directory to copy files to (in addition to cache)
+</ParamField>
+
+<ParamField path="date_type" type="str" default="datos">
+  Date interpretation: `"datos"` (data date) or `"publicacion"` (publication date)
+</ParamField>
+
+```python
+files = client.archives.download(
+    214,
+    start="2024-01-01",
+    end="2024-01-31",
+    output_dir="./data/",
+)
+```
+
+**Returns:** `list[Path]` — Sorted list of downloaded file paths.
+
+---
+
+## ArchiveHandle
+
+Returned by `ArchivesManager.get()`. Provides metadata access and download functionality for a specific archive.
+
+### Attributes
+
+<ResponseField name="id" type="int">
+  Archive ID
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Archive name (updated after `configure()` or `download()`)
+</ResponseField>
+
+<ResponseField name="metadata" type="dict">
+  Raw API metadata including horizon, archive_type, etc.
+</ResponseField>
+
+<ResponseField name="archive" type="Archive">
+  Parsed archive model
+</ResponseField>
+
+### configure(\*\*kwargs)
+
+Configure archive parameters and resolve the download URL.
+
+<ParamField path="date" type="str">
+  Single date (YYYY-MM-DD) — mutually exclusive with `start`/`end`
+</ParamField>
+
+<ParamField path="start" type="str">
+  Start date (YYYY-MM-DD) — requires `end`
+</ParamField>
+
+<ParamField path="end" type="str">
+  End date (YYYY-MM-DD) — requires `start`
+</ParamField>
+
+<ParamField path="date_type" type="str" default="datos">
+  Date interpretation: `"datos"` or `"publicacion"`
+</ParamField>
+
+<ParamField path="locale" type="str" default="es">
+  Response language (`"es"` or `"en"`)
+</ParamField>
+
+```python
+handle = client.archives.get(214)
+handle.configure(date="2024-01-15")
+print(handle.name)  # Updated with actual filename
+```
+
+**Side effects:**
+- Updates `handle.metadata` with API response
+- Updates `handle.name` with resolved filename
+- Sets internal `_download_url` for subsequent download
+
+**Raises:** `ValueError` if neither `date` nor both `start`/`end` are provided.
+
+### download(\*\*kwargs)
+
+Download archive files for a single date or date range.
+
+<ParamField path="date" type="str">
+  Single date (YYYY-MM-DD) — mutually exclusive with `start`/`end`
+</ParamField>
+
+<ParamField path="start" type="str">
+  Start date (YYYY-MM-DD) — requires `end`
+</ParamField>
+
+<ParamField path="end" type="str">
+  End date (YYYY-MM-DD) — requires `start`
+</ParamField>
+
+<ParamField path="output_dir" type="str | Path">
+  Directory to copy extracted files to (in addition to cache)
+</ParamField>
+
+<ParamField path="date_type" type="str" default="datos">
+  Date interpretation: `"datos"` or `"publicacion"`
+</ParamField>
+
+```python
+handle = client.archives.get(214)
+
+# Single date
+files = handle.download(date="2024-01-15")
+
+# Date range with output directory
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-31",
+    output_dir="./data/pvpc/",
+)
+```
+
+**Returns:** `list[Path]` — Sorted list of file paths in cache directory.
+
+**Features:**
+- Automatically iterates over date ranges based on archive horizon:
+  - Daily archives (`horizon="D"`): One request per day
+  - Monthly archives (`horizon="M"`): One request per month
+- Skips dates already present in cache
+- Extracts ZIP files or writes XLS files directly
+- Optionally copies files to `output_dir` while keeping cache copy
+- Handles API errors gracefully (logs warning and continues)
+
+**Cache structure:**
+```
+{cache_dir}/archives/{archive_id}/{name}_{datekey}/
+  ├── file1.csv
+  ├── file2.csv
+  └── ...
+```
+
+Where `datekey` is:
+- `YYYYMMDD` for daily archives
+- `YYYYMM` for monthly archives
+
+**Raises:** `ValueError` if neither `date` nor both `start`/`end` are provided.
+
+---
+
+## Example Usage
+
+### List available archives
+
+```python
+import esios
+
+client = esios.ESIOSClient(token="your-token")
+
+# List all archives (local catalog)
+df = client.archives.list()
+print(df[["name", "horizon", "archive_type"]].head())
+
+# Query API for archives
+df_api = client.archives.list(source="api")
+```
+
+### Download single date
+
+```python
+# Get archive handle
+handle = client.archives.get(214)  # I90 DIA Archive
+
+# Download single day
+files = handle.download(date="2024-01-15")
+for f in files:
+    print(f.name)
+```
+
+### Download date range
+
+```python
+# Download month of data
+handle = client.archives.get(214)
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-31",
+)
+
+print(f"Downloaded {len(files)} files")
+```
+
+### Copy to output directory
+
+```python
+# Download and copy to specific directory
+handle = client.archives.get(214)
+files = handle.download(
+    start="2024-01-01",
+    end="2024-01-07",
+    output_dir="./data/pvpc/",
+)
+
+# Files are in both cache and output_dir
+```
+
+### Convenience method
+
+```python
+# One-liner: get + download
+files = client.archives.download(
+    214,
+    date="2024-01-15",
+    output_dir="./data/",
+)
+```
+
+### Monthly archive
+
+```python
+# Archive 241 has monthly granularity
+handle = client.archives.get(241)
+
+# Download Q1 2024 (will make 3 requests: Jan, Feb, Mar)
+files = handle.download(
+    start="2024-01-01",
+    end="2024-03-31",
+)
+```
+
+### Configure before download
+
+```python
+handle = client.archives.get(214)
+
+# Configure to get filename and metadata
+handle.configure(date="2024-01-15")
+print(f"Will download: {handle.name}")
+print(f"Horizon: {handle.metadata['archive']['horizon']}")
+
+# Then download (will reuse configuration)
+# Note: download() calls configure() internally, so this is optional
+```
+
+### Handle API errors
+
+```python
+# Automatically skips dates that fail
+files = handle.download(
+    start="2023-01-01",  # May include dates without data
+    end="2023-12-31",
+)
+
+# Check logs for warnings about skipped dates
+```

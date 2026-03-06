@@ -1,0 +1,111 @@
+---
+title: Pandas Expressions
+description: Apply any pandas operation to ESIOS data — no special API needed
+---
+
+Since all data is returned as pandas DataFrames, you can apply any pandas operation directly — no special API needed.
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Fetch data
+
+```python
+handle = client.indicators.get(600)
+df = handle.historical("2025-01-01", "2025-01-31")
+df.head()
+```
+
+Returns:
+
+```
+                           Portugal  Francia  España  Alemania  Bélgica  Países Bajos
+datetime
+2025-01-01 00:00:00+01:00    134.49    12.36  134.49      2.16    10.62         13.62
+...
+```
+
+## Resample to daily averages
+
+```python
+df.resample("D").mean().round(2)
+```
+
+Returns daily average prices:
+
+```
+                           Portugal  Francia  España  Alemania  Bélgica  Países Bajos
+datetime
+2025-01-01 00:00:00+01:00    103.62    22.59  100.93      0.95    22.14         35.70
+2025-01-02 00:00:00+01:00    134.38   107.69  134.02     92.91   113.18        132.28
+...
+```
+
+## Rolling 24-hour average
+
+```python
+df["España"].rolling(24).mean().plot(
+    figsize=(12, 4),
+    title="24h Rolling Average — España",
+)
+```
+
+## Filter hours with negative prices
+
+```python
+df[df["España"] < 0]
+```
+
+Returns rows where Spain had negative prices (if any).
+
+## Monthly statistics
+
+```python
+df["España"].describe().round(2)
+```
+
+Returns:
+
+```
+count    2976.00
+mean       96.69
+std        48.50
+min         0.00
+25%        60.08
+50%       110.29
+75%       131.88
+max       225.00
+Name: España, dtype: float64
+```
+
+## Pivot: average price by hour of day
+
+```python
+hourly = df.copy()
+hourly["hour"] = hourly.index.hour
+hourly.groupby("hour")["España"].mean().round(2).plot.bar(
+    figsize=(12, 4),
+    title="Average Price by Hour — España (€/MWh)",
+)
+```
+
+Shows which hours typically have the highest/lowest prices.
+
+## Standard pandas operations
+
+All standard pandas operations work:
+
+- `.resample()`, `.rolling()`, `.shift()`
+- `.groupby()`, `.pivot_table()`
+- `.merge()`, `.join()`, `.concat()`
+- `.apply()`, `.map()`, `.transform()`
+- Boolean indexing, slicing, filtering
+
+## Next steps
+
+- [Use the async client for high-throughput apps](/examples/async-client)

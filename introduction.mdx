@@ -1,0 +1,77 @@
+---
+title: Introduction
+description: A Python library and CLI to query the Spanish electricity market API (ESIOS/REE)
+---
+
+## What is python-esios?
+
+python-esios is a Python wrapper for the ESIOS API, providing programmatic access to the Spanish electricity market data from Red Eléctrica de España (REE). It enables you to download indicators (prices, generation, demand), archives (I90 settlement files), and more through both a Python library and command-line interface.
+
+The library simplifies interaction with the ESIOS API by providing:
+
+- **Type-safe client** with full async/sync support
+- **Automatic retry logic** for resilient data fetching
+- **Built-in caching** to reduce API calls and improve performance
+- **Pandas integration** for easy data analysis
+- **Command-line interface** for quick queries and automation
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Indicators API" icon="chart-line">
+    Query historical and real-time data for electricity prices, demand, generation by source, and more
+  </Card>
+  
+  <Card title="Archives API" icon="folder-open">
+    Download I90 settlement files and other official electricity market archives
+  </Card>
+  
+  <Card title="Smart Caching" icon="database">
+    Automatic caching of historical data with configurable TTL for recent data
+  </Card>
+  
+  <Card title="CLI & Python API" icon="terminal">
+    Use as a command-line tool or integrate into your Python applications
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+<Note>
+  python-esios is ideal for energy analysts, researchers, data scientists, and developers working with Spanish electricity market data.
+</Note>
+
+- **Price Analysis**: Track PVPC and day-ahead market prices over time
+- **Generation Monitoring**: Analyze renewable energy generation (wind, solar)
+- **Demand Forecasting**: Access historical demand data for modeling
+- **Market Research**: Download settlement files for detailed market analysis
+- **Automation**: Integrate real-time electricity data into your applications
+
+## Common Indicators
+
+The ESIOS API provides hundreds of indicators. Here are some of the most commonly used:
+
+| ID | Name | Description |
+|----|------|-------------|
+| 600 | PVPC | Voluntary price for small consumers |
+| 1001 | Day-ahead price | OMIE spot market price |
+| 10033 | Demand | Real-time electricity demand |
+| 10034 | Wind generation | Real-time wind generation |
+| 10035 | Solar PV generation | Real-time solar generation |
+
+## Requirements
+
+- **Python 3.10 or higher**
+- **ESIOS API token** (free, request from [REE](https://www.esios.ree.es/es/pagina/api))
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install python-esios and configure your API token
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first query in minutes
+  </Card>
+</CardGroup>

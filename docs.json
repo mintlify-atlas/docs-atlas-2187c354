@@ -1,122 +1,146 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Python ESIOS",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#0a96fc",
+    "light": "#67c4fc",
+    "dark": "#0a96fc"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/af234e63-9476-4b6b-9254-5bea1c0dafaa.png",
+  "logo": {
+    "light": "/logo.png",
+    "dark": "/logo.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/datons/python-esios"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/datons/python-esios"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core/client",
+              "core/indicators",
+              "core/archives",
+              "core/caching"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/searching-indicators",
+              "guides/historical-data",
+              "guides/multi-geography",
+              "guides/downloading-archives",
+              "guides/i90-settlement-files",
+              "guides/async-usage",
+              "guides/cache-management"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Client",
             "pages": [
-              "api-reference/introduction"
+              "api/esios-client",
+              "api/async-client"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Managers",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/indicators-manager",
+              "api/archives-manager",
+              "api/offer-indicators-manager"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "api/indicator",
+              "api/archive",
+              "api/exceptions"
+            ]
+          },
+          {
+            "group": "Processing",
+            "pages": [
+              "api/dataframes",
+              "api/i90-processing"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/overview",
+              "cli/indicators",
+              "cli/archives",
+              "cli/cache",
+              "cli/config",
+              "cli/catalog"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Quickstart",
+            "pages": [
+              "examples/setup-first-query"
+            ]
+          },
+          {
+            "group": "Working with Indicators",
+            "pages": [
+              "examples/search-indicators",
+              "examples/historical-data",
+              "examples/multi-geography-indicators",
+              "examples/compare-indicators",
+              "examples/market-prices",
+              "examples/generation-and-demand"
+            ]
+          },
+          {
+            "group": "Working with Archives",
+            "pages": [
+              "examples/download-archives",
+              "examples/i90-settlement-files"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "examples/pandas-expressions",
+              "examples/async-client"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

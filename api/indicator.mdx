@@ -1,0 +1,108 @@
+---
+title: Indicator Models
+description: Pydantic models for ESIOS indicator data
+---
+
+## Indicator
+
+Represents ESIOS indicator metadata.
+
+<ResponseField name="id" type="int" required>
+  Unique identifier for the indicator
+</ResponseField>
+
+<ResponseField name="name" type="str" required>
+  Full name of the indicator
+</ResponseField>
+
+<ResponseField name="short_name" type="str" default="">
+  Short name or abbreviation for the indicator
+</ResponseField>
+
+<ResponseField name="description" type="str" default="">
+  Detailed description of what the indicator measures
+</ResponseField>
+
+<ResponseField name="raw" type="dict[str, Any]" default="{}">
+  Raw API response data (excluded from serialization)
+</ResponseField>
+
+### Methods
+
+#### from_api
+
+```python
+@classmethod
+def from_api(cls, data: dict[str, Any]) -> Indicator
+```
+
+Builds an `Indicator` instance from raw API JSON response.
+
+**Parameters:**
+- `data` (dict): The raw indicator object from the ESIOS API response
+
+**Returns:**
+- `Indicator`: Parsed indicator instance
+
+**Example:**
+
+```python
+from esios.models.indicator import Indicator
+
+api_data = {
+    "id": 1001,
+    "name": "PVPC 2.0 TD",
+    "short_name": "PVPC",
+    "description": "Precio voluntario para el pequeño consumidor 2.0 TD"
+}
+
+indicator = Indicator.from_api(api_data)
+print(indicator.id)  # 1001
+print(indicator.name)  # "PVPC 2.0 TD"
+```
+
+## IndicatorValue
+
+Represents a single data point from an indicator time series.
+
+<ResponseField name="value" type="float" required>
+  The numeric value of the data point
+</ResponseField>
+
+<ResponseField name="datetime" type="datetime" required>
+  Timestamp of the data point in local time
+</ResponseField>
+
+<ResponseField name="datetime_utc" type="datetime | None" default="None">
+  Timestamp of the data point in UTC
+</ResponseField>
+
+<ResponseField name="tz_time" type="str | None" default="None">
+  Timezone identifier for the data point
+</ResponseField>
+
+<ResponseField name="geo_id" type="int | None" default="None">
+  Geographic identifier for the data point
+</ResponseField>
+
+<ResponseField name="geo_name" type="str | None" default="None">
+  Geographic name/region for the data point
+</ResponseField>
+
+**Example:**
+
+```python
+from datetime import datetime
+from esios.models.indicator import IndicatorValue
+
+value = IndicatorValue(
+    value=0.12345,
+    datetime=datetime(2024, 1, 15, 10, 0),
+    datetime_utc=datetime(2024, 1, 15, 9, 0),
+    tz_time="Europe/Madrid",
+    geo_id=3,
+    geo_name="Peninsula"
+)
+
+print(f"Price: {value.value} at {value.datetime}")
+```

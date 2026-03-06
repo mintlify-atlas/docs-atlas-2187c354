@@ -1,0 +1,398 @@
+---
+title: 'cache'
+description: 'CLI commands for managing the ESIOS API response cache'
+---
+
+The `cache` subcommand provides operations for inspecting and managing the local cache of API responses. Caching improves performance by avoiding redundant API calls.
+
+## Cache Location
+
+By default, the cache is stored in:
+
+```
+~/.cache/esios/
+```
+
+The cache directory structure:
+
+```
+~/.cache/esios/
+├── indicators/           # Cached indicator responses
+│   ├── 600_*.json
+│   └── 805_*.json
+├── archives/             # Cached archive files
+│   ├── 34_2025-06-01.xlsx
+│   └── 34_2025-06-02.xlsx
+├── geos.json            # Global geography registry
+└── catalog_indicators.json  # Indicator catalog
+```
+
+## Commands
+
+### status
+
+Show cache statistics including path, file count, size, and registry information.
+
+```bash
+esios cache status
+```
+
+**Options:** None
+
+**Examples:**
+
+```bash
+# View cache statistics
+esios cache status
+```
+
+**Example Output:**
+
+```
+╭────────────── ESIOS Cache ──────────────╮
+│ Path:       /home/user/.cache/esios     │
+│ Files:      127                          │
+│ Size:       45.3 MB                      │
+│                                          │
+│ Endpoints:                               │
+│   indicators: 89 files                   │
+│   archives: 38 files                     │
+│                                          │
+│ Geos registry: 15 geographies            │
+│   3        España                        │
+│   4        Peninsula                     │
+│   8001     Portugal                      │
+│   8741     France                        │
+│   ...                                    │
+│                                          │
+│ Indicator catalog: 1234 indicators cached│
+╰──────────────────────────────────────────╯
+```
+
+**Information Displayed:**
+
+- **Path** — Cache directory location
+- **Files** — Total number of cached files
+- **Size** — Total cache size in MB
+- **Endpoints** — Breakdown of files by endpoint type (indicators, archives)
+- **Geos registry** — Cached geography mappings (geo_id → geo_name)
+- **Indicator catalog** — Number of indicators in the offline catalog
+
+---
+
+### path
+
+Print the cache directory path. Useful for scripting or manual inspection.
+
+```bash
+esios cache path
+```
+
+**Options:** None
+
+**Examples:**
+
+```bash
+# Print cache directory
+esios cache path
+# /home/user/.cache/esios
+
+# Navigate to cache directory
+cd $(esios cache path)
+
+# List cache contents
+ls -lh $(esios cache path)
+
+# Check disk usage
+du -sh $(esios cache path)
+```
+
+---
+
+### clear
+
+Remove cached files. You can clear the entire cache, a specific endpoint, or a specific indicator/archive.
+
+```bash
+esios cache clear [OPTIONS]
+```
+
+**Options:**
+
+- `--indicator, -i INTEGER` — Clear a specific indicator/archive ID
+- `--endpoint, -e TEXT` — Endpoint to clear: `indicators`, `archives` (default: `indicators`)
+- `--all, -a` — Clear entire cache including geos and catalogs (flag)
+
+**Examples:**
+
+```bash
+# Clear a specific indicator
+esios cache clear --indicator 600
+# Removed 12 cached file(s).
+
+# Clear all indicators (keep archives and catalogs)
+esios cache clear --endpoint indicators
+# Removed 89 cached file(s).
+
+# Clear all archives
+esios cache clear --endpoint archives
+# Removed 38 cached file(s).
+
+# Clear a specific archive
+esios cache clear --indicator 34 --endpoint archives
+# Removed 5 cached file(s).
+
+# Clear entire cache (everything)
+esios cache clear --all
+# Removed 127 cached file(s).
+
+# Using short flags
+esios cache clear -i 600
+esios cache clear -e archives
+esios cache clear -a
+```
+
+**What Gets Cleared:**
+
+- `--indicator <ID>` — All cached responses for that specific ID
+- `--endpoint indicators` — All indicator cache files (keeps archives and registries)
+- `--endpoint archives` — All archive cache files (keeps indicators and registries)
+- `--all` — Everything (indicators, archives, geos, catalogs)
+
+---
+
+### geos
+
+Show the global geography registry (geo_id → geo_name mappings).
+
+```bash
+esios cache geos
+```
+
+**Options:** None
+
+**Examples:**
+
+```bash
+# Show cached geos registry
+esios cache geos
+```
+
+**Example Output:**
+
+```
+┌─────────────────────────────────┐
+│ Cached Geos Registry            │
+├─────────┬───────────────────────┤
+│ geo_id  │ geo_name              │
+├─────────┼───────────────────────┤
+│ 3       │ España                │
+│ 4       │ Peninsula             │
+│ 6       │ Canarias              │
+│ 7       │ Ceuta                 │
+│ 8       │ Melilla               │
+│ 8001    │ Portugal              │
+│ 8741    │ France                │
+│ 8742    │ Morocco               │
+│ ...     │ ...                   │
+└─────────┴───────────────────────┘
+```
+
+**Note:** The geos registry is populated automatically when you fetch indicators with geography data. If you haven't fetched any indicators yet, this will be empty.
+
+```bash
+# If empty, fetch an indicator to populate:
+esios indicators history 600 --start 2025-01-01 --end 2025-01-01
+esios cache geos
+```
+
+---
+
+## Cache Behavior
+
+### Automatic Caching
+
+All API responses are automatically cached:
+
+```bash
+# First request: fetches from API
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+# (Takes a few seconds...)
+
+# Second request: served from cache
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+# (Instant!)
+```
+
+### Cache Keys
+
+Cache keys include all relevant parameters:
+
+- Indicator/archive ID
+- Date range
+- Geography filters
+
+Changing any parameter results in a new cache entry:
+
+```bash
+# Different date ranges = different cache entries
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31  # Cached as key1
+esios indicators history 600 -s 2025-02-01 -e 2025-02-28  # Cached as key2
+
+# Different geos = different cache entries
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3  # Cached as key3
+```
+
+### Cache Expiration
+
+Currently, cached files do not expire automatically. You must manually clear stale cache entries:
+
+```bash
+# Clear specific indicator to refresh data
+esios cache clear --indicator 600
+
+# Then fetch fresh data
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+```
+
+## Common Workflows
+
+### Inspect Cache Before Clearing
+
+```bash
+# Check current cache status
+esios cache status
+
+# View cache directory contents
+ls -lh $(esios cache path)
+
+# Clear if needed
+esios cache clear --all
+```
+
+### Selective Cache Management
+
+```bash
+# Clear only indicators (keep archives)
+esios cache clear --endpoint indicators
+
+# Keep recent data, clear old indicators
+esios cache clear --indicator 600
+esios cache clear --indicator 805
+
+# Verify what remains
+esios cache status
+```
+
+### Refresh Stale Data
+
+```bash
+# Clear cache for specific indicator
+esios cache clear --indicator 600
+
+# Fetch fresh data
+esios indicators history 600 -s 2025-01-01 -e 2025-03-06
+```
+
+### Debugging Cache Issues
+
+```bash
+# Show cache status
+esios cache status
+
+# Check if specific data is cached
+ls -lh $(esios cache path)/indicators/ | grep 600
+
+# Clear and retry if seeing stale data
+esios cache clear --indicator 600
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+```
+
+### Free Disk Space
+
+```bash
+# Check cache size
+esios cache status
+
+# Clear everything
+esios cache clear --all
+
+# Verify size reduction
+du -sh $(esios cache path)
+```
+
+## Performance Benefits
+
+Caching significantly improves performance:
+
+| Operation | Without Cache | With Cache |
+|-----------|--------------|------------|
+| Indicator history (1 month) | ~2-3s | ~50ms |
+| Archive download (1 file) | ~5-10s | ~100ms |
+| Multiple queries | Linear growth | Near-instant |
+
+**Best Practices:**
+
+1. **Let cache grow naturally** — Don't clear unless necessary
+2. **Clear selectively** — Use `--indicator` to target specific IDs
+3. **Monitor size** — Use `esios cache status` periodically
+4. **Clear all when debugging** — Use `--all` to rule out cache issues
+
+## Geos Registry
+
+The geos registry provides fast geography name resolution without API calls:
+
+```bash
+# Populated automatically on first use
+esios indicators history 600 -s 2025-01-01 -e 2025-01-01
+
+# View cached geos
+esios cache geos
+
+# Use geo names in subsequent commands (no API call needed)
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
+```
+
+The registry maps:
+- `3` → `España`
+- `8001` → `Portugal`
+- `8741` → `France`
+- etc.
+
+## Troubleshooting
+
+### Cache Not Working
+
+```bash
+# Check cache status
+esios cache status
+
+# Verify cache directory is writable
+touch $(esios cache path)/test.txt && rm $(esios cache path)/test.txt
+```
+
+### Stale Data
+
+```bash
+# Clear specific indicator
+esios cache clear --indicator 600
+
+# Or clear all indicators
+esios cache clear --endpoint indicators
+```
+
+### Disk Space Issues
+
+```bash
+# Check cache size
+esios cache status
+
+# Clear entire cache
+esios cache clear --all
+```
+
+## See Also
+
+- [Indicators](/cli/indicators) — Commands that use the cache
+- [Archives](/cli/archives) — Archive caching behavior
+- [Config](/cli/config) — Configure cache location (future)

@@ -1,0 +1,80 @@
+---
+title: Download Archives
+description: Download and work with ESIOS archive files (ZIP/XLS) for detailed settlement and market data
+---
+
+The ESIOS platform provides downloadable archive files (ZIP/XLS) for detailed settlement, generation, and market data.
+
+Browse archives at: https://www.esios.ree.es/es/descargas
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## List available archives
+
+```python
+df = client.archives.list()
+df[["name", "id", "horizon", "archive_type"]]
+```
+
+Returns a DataFrame with available archive types:
+
+```
+                                name   id horizon archive_type
+0      Resultado_Subasta_Mensual_POR  159       M          xls
+1        Resultado_Subasta_Anual_POR  160       A          xls
+2   Resultado_Subasta_Trimestral_POR  161       T          xls
+...
+21                     A2_liquicomun    3       M          zip
+22                          totalp48   29       H          xml
+23                     totalrp48prec   27       H          xml
+```
+
+## Download a single date
+
+Use `archives.download()` for a one-step get + download:
+
+```python
+path = client.archives.download(
+    34,  # I90DIA archive
+    date="2024-06-15",
+    output_dir="data",
+)
+print(f"Files saved to: {path}")
+```
+
+Output:
+
+```
+Files saved to: /Users/username/.cache/esios/archives/34/I90DIA_20240615
+```
+
+## Using the handle for more control
+
+`archives.get()` returns a handle with `configure()` and `download()` methods:
+
+```python
+handle = client.archives.get(34)
+print(f"Archive: {handle.name}")
+print(f"ID: {handle.id}")
+print(f"Metadata: {handle.metadata['archive']['description']}")
+```
+
+Output:
+
+```
+Archive: I90DIA
+ID: 34
+Metadata: Información de detalle por Unidad de Programación (I90DIA)
+```
+
+Files are cached locally — subsequent downloads for the same dates skip the API call entirely.
+
+## Next steps
+
+- [Work with I90 settlement files](/examples/i90-settlement-files)

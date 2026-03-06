@@ -1,0 +1,488 @@
+---
+title: 'catalog'
+description: 'CLI commands for browsing the offline ESIOS catalog'
+---
+
+The `catalog` subcommand provides access to an offline catalog of indicators and archives. This allows you to browse metadata without making API calls.
+
+## Overview
+
+The catalog provides:
+- **Fast offline search** — No API token required
+- **Enhanced metadata** — Tags, notes, and curated descriptions
+- **Reference data** — Units (magnitudes), time periods, geographies
+- **Catalog refresh** — Update from the live API when needed
+
+Catalog files are stored in the python-esios package and can be updated via `esios catalog refresh`.
+
+---
+
+## Commands
+
+### list indicators
+
+List indicators in the offline catalog.
+
+```bash
+esios catalog list indicators [QUERY]
+```
+
+**Arguments:**
+
+- `QUERY` — Optional filter by name (substring match)
+
+**Examples:**
+
+```bash
+# List all indicators
+esios catalog list indicators
+
+# Filter by name
+esios catalog list indicators "price"
+esios catalog list indicators "generation"
+esios catalog list indicators "solar"
+```
+
+**Example Output:**
+
+```
+┌────────────────────────────────────────┐
+│ Indicators (37)                        │
+├─────┬──────────────────────┬──────────┤
+│ ID  │ Name                 │ Short    │ Tags
+├─────┼──────────────────────┼──────────┼─────────────────
+│ 600 │ Precio mercado SPOT  │ PVPC     │ price,market
+│ 805 │ Demanda real         │ Demand   │ demand,load
+│ 1293│ Generación eólica    │ Wind     │ generation,renewable,wind
+│ ... │ ...                  │ ...      │ ...
+└─────┴──────────────────────┴──────────┴─────────────────
+```
+
+---
+
+### list archives
+
+List archives in the offline catalog.
+
+```bash
+esios catalog list archives [QUERY]
+```
+
+**Arguments:**
+
+- `QUERY` — Optional filter by name/description (substring match)
+
+**Examples:**
+
+```bash
+# List all archives
+esios catalog list archives
+
+# Filter by name/description
+esios catalog list archives "I90"
+esios catalog list archives "curtailment"
+```
+
+**Example Output:**
+
+```
+┌────────────────────────────────────────────────────┐
+│ Archives (12)                                      │
+├─────┬─────────┬──────────────────────┬──────────┬─┤
+│ ID  │ Name    │ Description          │ Horizon  │ Type
+├─────┼─────────┼──────────────────────┼──────────┼─────
+│ 34  │ I90DIA  │ Daily I90 (curtail)  │ daily    │ xlsx
+│ 35  │ I90MEN  │ Monthly I90          │ monthly  │ xlsx
+│ ... │ ...     │ ...                  │ ...      │ ...
+└─────┴─────────┴──────────────────────┴──────────┴─────
+```
+
+---
+
+### show indicator
+
+Show detailed information for a single indicator.
+
+```bash
+esios catalog show indicator INDICATOR_ID
+```
+
+**Arguments:**
+
+- `INDICATOR_ID` — Indicator ID (required)
+
+**Examples:**
+
+```bash
+# Show indicator 600 details
+esios catalog show indicator 600
+
+# Show indicator 1293 details
+esios catalog show indicator 1293
+```
+
+**Example Output:**
+
+```
+ID:          600
+Name:        Precio mercado SPOT Diario
+Short Name:  PVPC
+Notes:       Daily spot market price (day-ahead market)
+Tags:        price, market, spot, electricity
+Units:       €/MWh
+Granularity: Hourly
+Geos:
+  3: España
+  8001: Portugal
+  8741: France
+```
+
+**What's shown:**
+- Basic metadata (ID, name, short name)
+- Curated notes and tags
+- Resolved units (from magnitude_id)
+- Resolved granularity (from time_period_id)
+- Available geographies (geo_ids with names)
+
+---
+
+### show archive
+
+Show detailed information for a single archive.
+
+```bash
+esios catalog show archive ARCHIVE_ID
+```
+
+**Arguments:**
+
+- `ARCHIVE_ID` — Archive ID (required)
+
+**Examples:**
+
+```bash
+# Show archive 34 details
+esios catalog show archive 34
+```
+
+**Example Output:**
+
+```
+ID:          34
+Name:        I90DIA
+Description: Daily I90 report containing curtailments, PBF, and system data
+Horizon:     daily
+Type:        xlsx
+Notes:       Contains sheets like I90DIA03 (curtailments), I90DIA26 (PBF)
+```
+
+---
+
+### refresh
+
+Refresh the catalog from the live ESIOS API.
+
+```bash
+esios catalog refresh [OPTIONS]
+```
+
+**Options:**
+
+- `--dry-run` — Preview changes without writing files (flag)
+- `--token, -t TEXT` — API token (or use env: `ESIOS_API_KEY`)
+
+**Examples:**
+
+```bash
+# Preview changes (dry run)
+esios catalog refresh --dry-run
+
+# Refresh catalog (requires API token)
+esios catalog refresh
+
+# With explicit token
+esios catalog refresh --token your-token
+```
+
+**Example Output:**
+
+```
+Refreshing indicators catalog...
+  Indicators: +12 added, ~5 updated, -2 removed
+Refreshing archives catalog...
+  Archives: +1 added, ~0 updated, -0 removed
+
+Catalog updated.
+```
+
+**Dry Run Output:**
+
+```bash
+esios catalog refresh --dry-run
+```
+
+```
+Refreshing indicators catalog...
+  Indicators: +12 added, ~5 updated, -2 removed
+Refreshing archives catalog...
+  Archives: +1 added, ~0 updated, -0 removed
+
+(dry run — no files were modified)
+```
+
+**What it does:**
+1. Fetches the latest indicator and archive lists from ESIOS API
+2. Compares with existing catalog
+3. Shows added/updated/removed entries
+4. Updates catalog files (unless `--dry-run`)
+
+---
+
+## Catalog Structure
+
+The catalog consists of several components:
+
+### Indicators Catalog
+
+**File:** `esios/catalog/data/indicators.json`
+
+Contains:
+- Indicator ID, name, short_name
+- Tags for categorization (price, demand, generation, etc.)
+- Notes with context and usage tips
+- References to magnitude_id, time_period_id, geo_ids
+
+### Archives Catalog
+
+**File:** `esios/catalog/data/archives.json`
+
+Contains:
+- Archive ID, name, description
+- Horizon (daily, monthly, yearly)
+- Archive type (xlsx, csv, zip)
+- Notes about structure and usage
+
+### Reference Data
+
+**Files:**
+- `magnitudes.json` — Units (MW, €/MWh, GWh, etc.)
+- `time_periods.json` — Granularities (hourly, daily, monthly)
+- `geos.json` — Geography mappings (geo_id → geo_name)
+
+These reference files allow the catalog to display human-readable values instead of IDs.
+
+---
+
+## Common Workflows
+
+### Discover Available Indicators
+
+```bash
+# Search without API token
+esios catalog list indicators "solar"
+
+# Get details
+esios catalog show indicator 1293
+
+# Then fetch data (requires token)
+esios indicators history 1293 -s 2025-01-01 -e 2025-01-31
+```
+
+### Browse Archives
+
+```bash
+# List all archives
+esios catalog list archives
+
+# Show details for I90DIA
+esios catalog show archive 34
+
+# Download and parse
+esios archives sheets 34 --date 2025-06-01
+esios archives exec 34 --sheet I90DIA03 --date 2025-06-01
+```
+
+### Offline Search
+
+```bash
+# Search for price indicators (no API call)
+esios catalog list indicators "price"
+
+# Search for generation indicators
+esios catalog list indicators "generation"
+
+# Search archives about curtailments
+esios catalog list archives "curtailment"
+```
+
+### Update Catalog
+
+```bash
+# Check what would change (dry run)
+esios catalog refresh --dry-run
+
+# Apply updates
+esios catalog refresh
+
+# Verify new entries
+esios catalog list indicators | head -20
+```
+
+---
+
+## Tags and Categories
+
+Indicators are tagged for easy discovery:
+
+- **price** — Market prices (spot, intraday, etc.)
+- **demand** — Electricity demand and load
+- **generation** — Power generation by source
+- **renewable** — Renewable energy sources
+- **wind** — Wind power
+- **solar** — Solar power
+- **market** — Market operations
+- **forecast** — Forecasted values
+- **system** — System operations
+
+**Search by tag:**
+
+```bash
+# All renewable indicators
+esios catalog list indicators | grep renewable
+
+# All price indicators
+esios catalog list indicators "price"
+```
+
+---
+
+## Catalog vs Live API
+
+| Feature | Catalog | Live API |
+|---------|---------|----------|
+| **Authentication** | No token required | Requires API token |
+| **Speed** | Instant | 1-2s per request |
+| **Data freshness** | Periodic refresh | Always current |
+| **Metadata** | Enhanced (tags, notes) | Basic |
+| **Search** | Offline | Online |
+| **Use case** | Discovery, exploration | Data fetching |
+
+**Workflow:**
+
+1. **Discover** with catalog (no token needed)
+2. **Fetch data** with live API (token required)
+
+```bash
+# Step 1: Discover (offline)
+esios catalog list indicators "generation"
+esios catalog show indicator 1293
+
+# Step 2: Fetch data (online)
+esios indicators history 1293 -s 2025-01-01 -e 2025-01-31
+```
+
+---
+
+## Reference Data Resolution
+
+The catalog automatically resolves IDs to human-readable values:
+
+### Magnitudes (Units)
+
+- `magnitude_id: 1` → `MW`
+- `magnitude_id: 23` → `€/MWh`
+- `magnitude_id: 45` → `GWh`
+
+### Time Periods (Granularity)
+
+- `time_period_id: 1` → `Hourly`
+- `time_period_id: 2` → `Daily`
+- `time_period_id: 3` → `Monthly`
+
+### Geographies
+
+- `geo_id: 3` → `España`
+- `geo_id: 8001` → `Portugal`
+- `geo_id: 8741` → `France`
+
+**Example:**
+
+```bash
+esios catalog show indicator 600
+# Units:       €/MWh          (resolved from magnitude_id)
+# Granularity: Hourly         (resolved from time_period_id)
+# Geos:        España, ...    (resolved from geo_ids)
+```
+
+---
+
+## Catalog Maintenance
+
+### When to Refresh
+
+Refresh the catalog when:
+- New indicators are added to ESIOS
+- Metadata changes (names, descriptions)
+- You want the latest archive information
+- After major ESIOS API updates
+
+### How Often to Refresh
+
+- **Development:** Refresh when needed
+- **Production:** Refresh monthly or when notified of changes
+- **CI/CD:** Include in automated update workflows
+
+### Automated Refresh
+
+```bash
+# In a cron job or CI workflow
+esios catalog refresh --token $ESIOS_API_KEY
+```
+
+---
+
+## Troubleshooting
+
+### Indicator Not Found
+
+```bash
+esios catalog show indicator 99999
+# Error: Indicator 99999 not found in catalog.
+```
+
+**Solution:** Refresh the catalog or check if the ID is correct.
+
+```bash
+esios catalog refresh
+esios catalog show indicator 99999
+```
+
+### Empty Catalog
+
+If the catalog appears empty, it may need initialization:
+
+```bash
+esios catalog refresh
+```
+
+### Refresh Fails
+
+```
+Error: No API token. Set ESIOS_API_KEY or run: esios config set token <KEY>
+```
+
+**Solution:** Provide an API token.
+
+```bash
+esios config set token your-token
+esios catalog refresh
+```
+
+---
+
+## See Also
+
+- [Indicators](/cli/indicators) — Fetch indicator data using IDs from catalog
+- [Archives](/cli/archives) — Download archives using IDs from catalog
+- [Cache](/cli/cache) — Catalog data is separate from API cache
+- [Config](/cli/config) — Set API token for catalog refresh

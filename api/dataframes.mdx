@@ -1,0 +1,214 @@
+---
+title: "DataFrame Processing"
+description: "Utilities for converting ESIOS API responses into pandas DataFrames"
+---
+
+## Overview
+
+The `esios.processing.dataframes` module provides utilities for transforming ESIOS API responses into clean, timezone-aware pandas DataFrames. These functions handle datetime parsing, timezone conversion, and automatic pivoting for multi-geography datasets.
+
+---
+
+## to_dataframe
+
+Convert a list of ESIOS value dictionaries to a pandas DataFrame.
+
+```python
+from esios.processing.dataframes import to_dataframe
+
+df = to_dataframe(
+    data,
+    timezone="Europe/Madrid",
+    pivot_geo=True
+)
+```
+
+### Parameters
+
+<ParamField path="data" type="list[dict]" required>
+  List of dictionaries containing ESIOS indicator values. Each dict typically includes fields like `datetime`, `value`, `geo_id`, and `geo_name`.
+</ParamField>
+
+<ParamField path="timezone" type="str" default="Europe/Madrid">
+  Target timezone for the datetime index. Defaults to `TIMEZONE` constant (`"Europe/Madrid"`).
+</ParamField>
+
+<ParamField path="pivot_geo" type="bool" default="True">
+  When `True` and multiple `geo_id` values are present, pivots the DataFrame so each geography becomes a separate column (wide format). When `False`, keeps the raw format with `geo_id` and `geo_name` columns intact.
+</ParamField>
+
+### Returns
+
+`pd.DataFrame` — A pandas DataFrame with:
+- A timezone-aware `DatetimeIndex`
+- Cleaned columns (time-related auxiliary columns removed)
+- For single-geo data: a flat DataFrame with `value` column
+- For multi-geo data with `pivot_geo=True`: each geography as a column
+- For multi-geo data with `pivot_geo=False`: long format with `geo_id`, `geo_name`, and `value` columns
+
+### Behavior
+
+1. **Datetime Parsing**: Parses the `datetime` field to a `DatetimeIndex` and converts from UTC to the target timezone
+2. **Column Cleanup**: Drops auxiliary time columns (any column containing "time" except "datetime")
+3. **Geography Handling**:
+   - **Single geography**: Drops `geo_id` and `geo_name` columns
+   - **Multiple geographies** (with `pivot_geo=True`): Pivots so each geography becomes a column, using `geo_name` as column labels (falls back to `geo_id` if names aren't available)
+   - **Multiple geographies** (with `pivot_geo=False`): Keeps raw format intact
+
+### Examples
+
+#### Basic Usage (Single Geography)
+
+```python
+data = [
+    {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3, "geo_name": "España"},
+    {"value": 200, "datetime": "2025-01-01T01:00:00Z", "geo_id": 3, "geo_name": "España"},
+]
+
+df = to_dataframe(data)
+print(df)
+```
+
+Output:
+```
+                     value
+datetime                  
+2025-01-01 01:00:00    100
+2025-01-01 02:00:00    200
+```
+
+#### Multi-Geography (Automatic Pivot)
+
+```python
+data = [
+    {"value": 100, "datetime": "2025-01-01T00:00:00Z", "geo_id": 3, "geo_name": "España"},
+    {"value": 110, "datetime": "2025-01-01T00:00:00Z", "geo_id": 1, "geo_name": "Portugal"},
+    {"value": 200, "datetime": "2025-01-01T01:00:00Z", "geo_id": 3, "geo_name": "España"},
+    {"value": 210, "datetime": "2025-01-01T01:00:00Z", "geo_id": 1, "geo_name": "Portugal"},
+]
+
+df = to_dataframe(data)  # pivot_geo=True by default
+print(df)
+```
+
+Output:
+```
+                     España  Portugal
+datetime                            
+2025-01-01 01:00:00     100       110
+2025-01-01 02:00:00     200       210
+```
+
+#### Multi-Geography (Disable Pivot)
+
+```python
+df = to_dataframe(data, pivot_geo=False)
+print(df)
+```
+
+Output:
+```
+                     value  geo_id geo_name
+datetime                                   
+2025-01-01 01:00:00    100       3   España
+2025-01-01 01:00:00    110       1  Portugal
+2025-01-01 02:00:00    200       3   España
+2025-01-01 02:00:00    210       1  Portugal
+```
+
+#### Custom Timezone
+
+```python
+df = to_dataframe(data, timezone="UTC")
+# DatetimeIndex will be in UTC instead of Europe/Madrid
+```
+
+---
+
+## convert_timezone
+
+Convert a DataFrame's DatetimeIndex to another timezone.
+
+```python
+from esios.processing.dataframes import convert_timezone
+
+df = convert_timezone(df, target_tz="UTC")
+```
+
+### Parameters
+
+<ParamField path="df" type="pd.DataFrame" required>
+  DataFrame with a DatetimeIndex to convert.
+</ParamField>
+
+<ParamField path="target_tz" type="str" default="Europe/Madrid">
+  Target timezone string (e.g., `"UTC"`, `"America/New_York"`, `"Europe/Madrid"`).
+</ParamField>
+
+### Returns
+
+`pd.DataFrame` — The same DataFrame with the index converted to the target timezone. If the index is timezone-naive, it will first be localized to UTC before conversion.
+
+### Examples
+
+#### Convert from Madrid Time to UTC
+
+```python
+import pandas as pd
+from esios.processing.dataframes import convert_timezone
+
+# DataFrame with Madrid timezone
+idx = pd.to_datetime(["2025-01-01T01:00:00"], utc=True).tz_convert("Europe/Madrid")
+df = pd.DataFrame({"value": [100]}, index=idx)
+
+print(df.index.tz)  # Europe/Madrid
+
+# Convert to UTC
+df_utc = convert_timezone(df, "UTC")
+print(df_utc.index.tz)  # UTC
+```
+
+#### Handle Naive DatetimeIndex
+
+If the DataFrame has a naive (timezone-unaware) DatetimeIndex, it will be automatically localized to UTC first:
+
+```python
+idx = pd.to_datetime(["2025-01-01T00:00:00"])  # naive
+df = pd.DataFrame({"value": [1]}, index=idx)
+
+result = convert_timezone(df, "Europe/Madrid")
+print(result.index.tz)  # Europe/Madrid (was naive, localized to UTC, then converted)
+```
+
+---
+
+## Integration with Client
+
+These functions are used internally by the ESIOS client when fetching indicator data:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your-token")
+
+# Automatically returns a DataFrame using to_dataframe()
+df = client.indicators.get(1001, start="2025-01-01", end="2025-01-31")
+
+# For multi-geo indicators, automatically pivots
+df = client.indicators.get_multi_geo(
+    1001,
+    geo_ids=[3, 8407],  # España, Portugal
+    start="2025-01-01",
+    end="2025-01-31"
+)
+print(df.columns)  # ['España', 'Portugal']
+```
+
+---
+
+## Notes
+
+- The default timezone `"Europe/Madrid"` matches the timezone used by ESIOS for all timestamps
+- Time columns like `tz_time`, `datetime_utc`, etc. are automatically removed to reduce clutter
+- Empty input (`data=[]`) returns an empty DataFrame
+- The pivoting logic uses `pivot_table` with `aggfunc="first"` to handle potential duplicates

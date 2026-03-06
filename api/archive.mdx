@@ -1,0 +1,95 @@
+---
+title: Archive Models
+description: Pydantic models for ESIOS archive data
+---
+
+## Archive
+
+Represents ESIOS archive metadata for downloadable data files.
+
+<ResponseField name="id" type="int" required>
+  Unique identifier for the archive
+</ResponseField>
+
+<ResponseField name="name" type="str" default="">
+  Name of the archive
+</ResponseField>
+
+<ResponseField name="horizon" type="str" default="D">
+  Time horizon of the archive data (e.g., "D" for daily, "M" for monthly)
+</ResponseField>
+
+<ResponseField name="archive_type" type="str" default="zip">
+  File format of the archive (typically "zip")
+</ResponseField>
+
+<ResponseField name="download" type="ArchiveDownload | None" default="None">
+  Download metadata for the archive
+</ResponseField>
+
+<ResponseField name="raw" type="dict[str, Any]" default="{}">
+  Raw API response data (excluded from serialization)
+</ResponseField>
+
+### Methods
+
+#### from_api
+
+```python
+@classmethod
+def from_api(cls, data: dict[str, Any]) -> Archive
+```
+
+Builds an `Archive` instance from raw API JSON response.
+
+**Parameters:**
+- `data` (dict): The raw archive object from the ESIOS API response
+
+**Returns:**
+- `Archive`: Parsed archive instance
+
+**Example:**
+
+```python
+from esios.models.archive import Archive
+
+api_data = {
+    "id": 2001,
+    "name": "Historical Energy Data 2024",
+    "horizon": "M",
+    "archive_type": "zip",
+    "download": {
+        "name": "energy_2024.zip",
+        "url": "https://api.esios.ree.es/archives/70/download"
+    }
+}
+
+archive = Archive.from_api(api_data)
+print(archive.name)  # "Historical Energy Data 2024"
+print(archive.download.url)  # "https://api.esios.ree.es/archives/70/download"
+```
+
+## ArchiveDownload
+
+Represents download metadata for an archive file.
+
+<ResponseField name="name" type="str" default="">
+  Filename of the downloadable archive
+</ResponseField>
+
+<ResponseField name="url" type="str" default="">
+  Direct download URL for the archive file
+</ResponseField>
+
+**Example:**
+
+```python
+from esios.models.archive import ArchiveDownload
+
+download = ArchiveDownload(
+    name="data_2024_01.zip",
+    url="https://api.esios.ree.es/archives/70/download"
+)
+
+print(f"Download {download.name} from {download.url}")
+```

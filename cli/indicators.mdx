@@ -1,0 +1,355 @@
+---
+title: 'indicators'
+description: 'CLI commands for working with ESIOS indicators'
+---
+
+The `indicators` subcommand provides operations for listing, searching, and fetching indicator data.
+
+## Commands
+
+### list
+
+List all available ESIOS indicators.
+
+```bash
+esios indicators list [OPTIONS]
+```
+
+**Options:**
+
+- `--token, -t TEXT` — ESIOS API key (overrides config/env)
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json` (default: `table`)
+
+**Examples:**
+
+```bash
+# List all indicators (table format)
+esios indicators list
+
+# Export to CSV
+esios indicators list --format csv > indicators.csv
+
+# JSON output
+esios indicators list --format json
+```
+
+**Example Output:**
+
+```
+┏━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+┃ ID  ┃ Name                           ┃ Short Name     ┃
+┡━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+│ 600 │ Precio mercado SPOT Diario     │ PVPC           │
+│ 805 │ Demanda real                   │ Demand         │
+│ ... │ ...                            │ ...            │
+└─────┴────────────────────────────────┴────────────────┘
+```
+
+---
+
+### search
+
+Search indicators by name (substring match).
+
+```bash
+esios indicators search QUERY [OPTIONS]
+```
+
+**Arguments:**
+
+- `QUERY` — Search query (name substring)
+
+**Options:**
+
+- `--token, -t TEXT` — ESIOS API key
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json` (default: `table`)
+
+**Examples:**
+
+```bash
+# Search for price indicators
+esios indicators search "price"
+
+# Search for generation indicators
+esios indicators search "generation"
+
+# Export search results to JSON
+esios indicators search "solar" --format json
+```
+
+**Example Output:**
+
+```
+┌────────────────────────────────────────────┐
+│ Indicators matching 'price'                │
+├─────┬──────────────────────────┬───────────┤
+│ ID  │ Name                     │ Short     │
+├─────┼──────────────────────────┼───────────┤
+│ 600 │ Precio mercado SPOT      │ PVPC      │
+│ 601 │ Precio mercado intraday  │ Intraday  │
+└─────┴──────────────────────────┴───────────┘
+```
+
+---
+
+### meta
+
+Show detailed metadata for an indicator including unit, granularity, geographies, and last update time.
+
+```bash
+esios indicators meta INDICATOR_ID [OPTIONS]
+```
+
+**Arguments:**
+
+- `INDICATOR_ID` — Indicator ID (required)
+
+**Options:**
+
+- `--token, -t TEXT` — ESIOS API key
+- `--format, -f TEXT` — Output format: `table`, `json` (default: `table`)
+
+**Examples:**
+
+```bash
+# Show metadata for indicator 600
+esios indicators meta 600
+
+# JSON output
+esios indicators meta 600 --format json
+```
+
+**Example Output:**
+
+```
+╭──────────── Indicator 600 ────────────╮
+│ Name:          Precio mercado SPOT    │
+│ Short name:    PVPC                    │
+│ ID:            600                     │
+│ Unit:          €/MWh                   │
+│ Granularity:   Hourly                  │
+│ Step type:     continuous              │
+│ Composited:    No                      │
+│ Disaggregated: Yes                     │
+│ Last updated:  2025-03-06T08:30:00Z   │
+│                                        │
+│ Geographies:                           │
+│   3        España                      │
+│   8001     Portugal                    │
+│   8741     France                      │
+╰────────────────────────────────────────╯
+```
+
+---
+
+### history
+
+Get historical data for an indicator over a date range.
+
+```bash
+esios indicators history INDICATOR_ID [OPTIONS]
+```
+
+**Arguments:**
+
+- `INDICATOR_ID` — Indicator ID (required)
+
+**Options:**
+
+- `--start, -s TEXT` — Start date in `YYYY-MM-DD` format (required)
+- `--end, -e TEXT` — End date in `YYYY-MM-DD` format (required)
+- `--geo, -g TEXT` — Filter by geo ID or name (can be repeated for multiple geos)
+- `--token, -t TEXT` — ESIOS API key
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json`, `parquet` (default: `table`)
+- `--output, -o TEXT` — Output file path (required for parquet format)
+
+**Examples:**
+
+```bash
+# Get hourly data for January 2025
+esios indicators history 600 --start 2025-01-01 --end 2025-01-31
+
+# Export to CSV
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 -f csv -o prices.csv
+
+# Filter by geography (España only)
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3
+
+# Filter by geography name
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
+
+# Multiple geographies
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo 3 --geo 8001
+
+# Export to Parquet
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 -f parquet -o data.parquet
+```
+
+**Example Output:**
+
+```
+┌─────────────────────┬──────────┬───────────┐
+│ datetime            │ España   │ Portugal  │
+├─────────────────────┼──────────┼───────────┤
+│ 2025-01-01 00:00:00 │ 45.23    │ 47.10     │
+│ 2025-01-01 01:00:00 │ 42.15    │ 44.20     │
+│ ...                 │ ...      │ ...       │
+└─────────────────────┴──────────┴───────────┘
+Showing 50 of 744 rows
+```
+
+---
+
+### exec
+
+Fetch indicator data and evaluate a Python expression on it. This command provides powerful data analysis capabilities directly from the command line.
+
+```bash
+esios indicators exec INDICATOR_IDS... [OPTIONS]
+```
+
+**Arguments:**
+
+- `INDICATOR_IDS` — One or more indicator IDs (space-separated)
+
+**Options:**
+
+- `--start, -s TEXT` — Start date in `YYYY-MM-DD` format (required)
+- `--end, -e TEXT` — End date in `YYYY-MM-DD` format (required)
+- `--expr, -x TEXT` — Python expression to evaluate (default: `"df"`)
+- `--geo, -g TEXT` — Filter by geo ID or name (can be repeated)
+- `--token, -t TEXT` — ESIOS API key
+- `--format, -f TEXT` — Output format: `table`, `csv`, `json` (default: `table`)
+- `--output, -o TEXT` — Output file path
+
+**Available Variables:**
+
+In the expression context, you have access to:
+
+- `df` — pandas DataFrame with the fetched data
+- `pd` — pandas module
+- `np` — numpy module
+
+**Examples:**
+
+```bash
+# Basic statistics
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.describe()"
+
+# Resample to daily averages
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.resample('D').mean()"
+
+# Compare two indicators (correlation)
+esios indicators exec 600 10034 -s 2025-01-01 -e 2025-01-31 -x "df.corr()"
+
+# Filter by geography and calculate mean
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 --geo 3 -x "df.mean()"
+
+# Calculate rolling average
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.rolling(24).mean()"
+
+# Find maximum value
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 -x "df.max()"
+
+# Weekly resampling with multiple aggregations
+esios indicators exec 600 -s 2025-01-01 -e 2025-12-31 \
+  -x "df.resample('W').agg(['mean', 'min', 'max'])"
+
+# Export processed data to CSV
+esios indicators exec 600 -s 2025-01-01 -e 2025-01-31 \
+  -x "df.resample('D').mean()" \
+  --format csv --output daily_avg.csv
+```
+
+**Example Output:**
+
+```
+┌─────────────────────┬──────────┐
+│ datetime            │ España   │
+├─────────────────────┼──────────┤
+│ count               │ 744.0000 │
+│ mean                │ 52.1234  │
+│ std                 │ 12.4567  │
+│ min                 │ 28.5000  │
+│ 25%                 │ 43.2100  │
+│ 50%                 │ 51.3400  │
+│ 75%                 │ 61.5600  │
+│ max                 │ 89.2300  │
+└─────────────────────┴──────────┘
+```
+
+**Multi-Indicator Comparison:**
+
+When multiple indicator IDs are provided, the data is automatically joined into a single DataFrame with columns named after the indicators:
+
+```bash
+# Compare spot price and demand
+esios indicators exec 600 805 -s 2025-01-01 -e 2025-01-31
+
+# Calculate correlation matrix
+esios indicators exec 600 805 1293 -s 2025-01-01 -e 2025-12-31 -x "df.corr()"
+```
+
+---
+
+## Common Patterns
+
+### Date Range Best Practices
+
+Indicators have different granularities (hourly, daily, monthly). Always check metadata first:
+
+```bash
+# Check granularity
+esios indicators meta 600
+
+# Then fetch appropriate date range
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31
+```
+
+### Geography Handling
+
+Indicators may have one or multiple geographies:
+
+```bash
+# Check available geos
+esios indicators meta 600
+
+# Filter to specific geography
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --geo España
+```
+
+### Performance Tips
+
+1. **Use caching** — Repeated queries are served from cache automatically
+2. **Limit date ranges** — Fetch only the data you need
+3. **Use parquet for large exports** — More efficient than CSV for large datasets
+
+```bash
+# Check what's cached
+esios cache status
+
+# Clear cache if needed
+esios cache clear --indicator 600
+```
+
+### Pipeline with Other Tools
+
+The CLI integrates well with standard Unix tools:
+
+```bash
+# Count indicators matching "solar"
+esios indicators search "solar" --format csv | wc -l
+
+# Filter CSV output with jq
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 --format json | jq '.[] | select(.España > 60)'
+
+# Save and process later
+esios indicators history 600 -s 2025-01-01 -e 2025-01-31 -f parquet -o data.parquet
+python analyze.py data.parquet
+```
+
+## See Also
+
+- [Archives](/cli/archives) — Download and parse archive files
+- [Cache](/cli/cache) — Manage cached API responses
+- [Catalog](/cli/catalog) — Browse offline indicator metadata

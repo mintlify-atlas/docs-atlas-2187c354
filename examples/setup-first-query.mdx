@@ -1,0 +1,86 @@
+---
+title: Setup and First Query
+description: Install python-esios and make your first API call to fetch electricity market data
+---
+
+This guide shows how to install `python-esios` and make your first API call.
+
+## Install the library
+
+```bash
+pip install python-esios
+```
+
+## Set your API key
+
+Get a free API key from [ESIOS](https://www.esios.ree.es/) (login required).
+
+Set it as an environment variable:
+
+```bash
+export ESIOS_API_KEY="your-token-here"
+```
+
+## Create the client
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## List available indicators
+
+The ESIOS API exposes ~2000 indicators covering electricity prices, generation, demand, and more.
+
+```python
+df = client.indicators.list()
+df
+```
+
+Returns a DataFrame with 2037 indicators:
+
+```
+       name                                    short_name
+id
+1      Generación programada PBF Hidráulica UGH    Hidráulica UGH
+2      Generación programada PBF Hidráulica no UGH Hidráulica no UGH
+...
+```
+
+## Fetch historical data
+
+Let's get the spot price (indicator 600) for one week:
+
+```python
+handle = client.indicators.get(600)
+df = handle.historical("2025-01-01", "2025-01-07")
+df
+```
+
+Returns a DataFrame with columns for each geography:
+
+```
+                           Portugal  Francia  España  Alemania  Bélgica  Países Bajos
+datetime
+2025-01-01 00:00:00+01:00   134.49    12.36  134.49      2.16    10.62         13.62
+2025-01-01 00:15:00+01:00   134.49    12.36  134.49      2.16    10.62         13.62
+...
+```
+
+The result is a DataFrame with:
+- A timezone-aware `DatetimeIndex` (Europe/Madrid)
+- One column per geography (country)
+- Values in €/MWh
+
+## Quick plot
+
+```python
+df.plot(figsize=(12, 4), title="Spot Price (€/MWh) — Indicator 600")
+```
+
+## Next steps
+
+- [Search for specific indicators](/examples/search-indicators)
+- [Fetch and analyze historical data](/examples/historical-data)
+- [Compare multiple indicators](/examples/compare-indicators)

@@ -1,97 +1,145 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Python ESIOS"
+description: "A Python library and CLI to query the Spanish electricity market API (ESIOS/REE)"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #0a96fc 0%, #67c4fc 100%)',
+  padding: '60px 40px',
+  borderRadius: '4px',
+  marginBottom: '40px',
+  color: '#ffffff'
+}}>
+  <h1 style={{
+    fontSize: '36px',
+    fontWeight: '700',
+    fontFamily: 'Inter',
+    margin: '0 0 16px 0',
+    color: '#ffffff'
+  }}>Python ESIOS</h1>
+  <p style={{
+    fontSize: '18.4px',
+    fontWeight: '400',
+    fontFamily: 'Inter',
+    margin: '0 0 32px 0',
+    color: '#ffffff',
+    opacity: 0.95
+  }}>Access Spanish electricity market data with a powerful Python library and CLI. Query indicators, download archives, and analyze energy data with ease.</p>
+  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+    <a href="/quickstart" style={{
+      background: '#0a2fbd',
+      color: '#ffffff',
+      padding: '12px 24px',
+      borderRadius: '4px',
+      textDecoration: 'none',
+      fontWeight: '600',
+      fontSize: '14.72px',
+      fontFamily: 'Inter',
+      display: 'inline-block'
+    }}>Get Started</a>
+    <a href="https://github.com/datons/python-esios" style={{
+      background: 'transparent',
+      color: '#ffffff',
+      padding: '12px 24px',
+      borderRadius: '4px',
+      textDecoration: 'none',
+      fontWeight: '600',
+      fontSize: '14.72px',
+      fontFamily: 'Inter',
+      display: 'inline-block',
+      border: '2px solid #ffffff'
+    }}>View on GitHub</a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Electricity Market Data" icon="bolt" href="/core/indicators">
+    Access 600+ indicators including prices, generation, demand, and more from ESIOS/REE API
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Archive Downloads" icon="file-zipper" href="/core/archives">
+    Download I90 settlement files and 150+ other archives with automatic caching
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Intelligent Caching" icon="database" href="/core/caching">
+    Built-in parquet-based caching for fast data access and reduced API calls
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Multi-Geography Support" icon="globe" href="/guides/multi-geography">
+    Automatic pivoting and geo-name resolution for multi-country indicators
   </Card>
-</Columns>
+  <Card title="Pandas Integration" icon="table" href="/api/dataframes">
+    All data returned as pandas DataFrames for seamless analysis
+  </Card>
+  <Card title="Async & Sync Clients" icon="bolt-lightning" href="/guides/async-usage">
+    Choose between synchronous ESIOSClient or async AsyncESIOSClient
+  </Card>
+  <Card title="CLI Tool" icon="terminal" href="/cli/overview">
+    Command-line interface for quick data exploration and export
+  </Card>
+  <Card title="Offline Catalog" icon="book" href="/cli/catalog">
+    Browse indicators and archives offline without API calls
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+<Steps>
+  <Step title="Install the package">
+    Install python-esios using pip:
+    
+    ```bash
+    pip install python-esios
+    ```
+  </Step>
+  
+  <Step title="Configure your API token">
+    Get a token from [REE](https://www.esios.ree.es/es/pagina/api) and configure it:
+    
+    ```bash
+    esios config set token YOUR_TOKEN
+    ```
+  </Step>
+  
+  <Step title="Start querying data">
+    Fetch electricity price data with just a few lines:
+    
+    ```python
+    from esios import ESIOSClient
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+    client = ESIOSClient()
+    
+    # Get PVPC electricity price
+    handle = client.indicators.get(600)
+    df = handle.historical("2025-01-01", "2025-01-31")
+    print(df)
+    ```
+  </Step>
+</Steps>
 
-## Need inspiration?
+## Popular Use Cases
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
+<CardGroup cols={3}>
+  <Card title="Market Prices" icon="euro-sign" href="/examples/market-prices">
+    Track PVPC and day-ahead electricity prices
+  </Card>
+  <Card title="Generation & Demand" icon="chart-line" href="/examples/generation-and-demand">
+    Monitor renewable generation and electricity demand
+  </Card>
+  <Card title="I90 Files" icon="file-invoice" href="/examples/i90-settlement-files">
+    Download settlement files for billing analysis
+  </Card>
+</CardGroup>
+
+## Common Indicators
+
+| ID | Name | Description |
+|----|------|-------------|
+| 600 | PVPC | Voluntary price for small consumers |
+| 1001 | Day-ahead price | OMIE spot market price |
+| 10033 | Demand | Real-time electricity demand |
+| 10034 | Wind generation | Real-time wind generation |
+| 10035 | Solar PV generation | Real-time solar generation |
+
+<Card title="Explore all indicators" icon="magnifying-glass" href="/guides/searching-indicators">
+  Search and discover 600+ available indicators
 </Card>

@@ -1,0 +1,203 @@
+---
+title: Exceptions
+description: Custom exceptions raised by the ESIOS API client
+---
+
+## Exception Hierarchy
+
+All ESIOS exceptions inherit from `ESIOSError`, making it easy to catch any library-specific error:
+
+```python
+try:
+    client.get_indicator(1001)
+except ESIOSError as e:
+    print(f"ESIOS error occurred: {e}")
+```
+
+## ESIOSError
+
+Base exception class for all ESIOS-related errors.
+
+**Inheritance:** `Exception`
+
+**When raised:** This is a base class and typically not raised directly. Catch this to handle any ESIOS-specific exception.
+
+**Example:**
+
+```python
+from esios.exceptions import ESIOSError
+
+try:
+    # Any ESIOS operation
+    data = client.get_indicators()
+except ESIOSError as e:
+    # Catches all ESIOS-specific exceptions
+    logger.error(f"ESIOS operation failed: {e}")
+```
+
+## AuthenticationError
+
+Raised when API authentication fails due to invalid or missing credentials.
+
+**Inheritance:** `ESIOSError`
+
+**When raised:**
+- HTTP 401 (Unauthorized) responses from the ESIOS API
+- HTTP 403 (Forbidden) responses indicating insufficient permissions
+- Missing or invalid API key
+
+**Default message:** "Authentication failed. Check your ESIOS API key."
+
+**Attributes:**
+
+<ResponseField name="message" type="str">
+  Error message describing the authentication failure
+</ResponseField>
+
+**Example:**
+
+```python
+from esios import Client
+from esios.exceptions import AuthenticationError
+
+try:
+    client = Client(token="invalid_token")
+    client.get_indicator(1001)
+except AuthenticationError as e:
+    print(f"Authentication failed: {e}")
+    print("Please check your ESIOS API key")
+```
+
+## APIResponseError
+
+Raised when the ESIOS API returns a non-successful HTTP response (excluding authentication errors).
+
+**Inheritance:** `ESIOSError`
+
+**When raised:**
+- HTTP 4xx responses (except 401/403)
+- HTTP 5xx responses (server errors)
+- Any non-2xx response that isn't an authentication error
+
+**Attributes:**
+
+<ResponseField name="status_code" type="int" required>
+  The HTTP status code returned by the API
+</ResponseField>
+
+<ResponseField name="message" type="str">
+  Error message describing the API response error. Defaults to "ESIOS API returned HTTP {status_code}" if not provided.
+</ResponseField>
+
+**Example:**
+
+```python
+from esios import Client
+from esios.exceptions import APIResponseError
+
+try:
+    client = Client(token="your_token")
+    client.get_indicator(999999)  # Non-existent indicator
+except APIResponseError as e:
+    print(f"API error: {e}")
+    print(f"Status code: {e.status_code}")
+    if e.status_code == 404:
+        print("Indicator not found")
+    elif e.status_code >= 500:
+        print("Server error, please retry later")
+```
+
+## NetworkError
+
+Raised when network-level communication with the ESIOS API fails.
+
+**Inheritance:** `ESIOSError`
+
+**When raised:**
+- Connection failures (unable to reach the server)
+- Request timeouts
+- DNS resolution errors
+- SSL/TLS errors
+- Other network-related issues
+
+**Default message:** "Network error communicating with ESIOS API."
+
+**Attributes:**
+
+<ResponseField name="message" type="str">
+  Error message describing the network failure
+</ResponseField>
+
+**Example:**
+
+```python
+from esios import Client
+from esios.exceptions import NetworkError
+import time
+
+client = Client(token="your_token")
+
+max_retries = 3
+for attempt in range(max_retries):
+    try:
+        data = client.get_indicators()
+        break
+    except NetworkError as e:
+        print(f"Network error on attempt {attempt + 1}: {e}")
+        if attempt < max_retries - 1:
+            time.sleep(2 ** attempt)  # Exponential backoff
+        else:
+            print("Max retries reached, giving up")
+            raise
+```
+
+## Error Handling Best Practices
+
+### Specific Exception Handling
+
+Handle specific exceptions when you need different recovery strategies:
+
+```python
+from esios import Client
+from esios.exceptions import (
+    AuthenticationError,
+    APIResponseError,
+    NetworkError,
+    ESIOSError
+)
+
+client = Client(token="your_token")
+
+try:
+    data = client.get_indicator(1001)
+except AuthenticationError:
+    print("Check your API credentials")
+    # Prompt for new credentials or exit
+except NetworkError:
+    print("Network issue, retrying...")
+    # Implement retry logic
+except APIResponseError as e:
+    print(f"API error {e.status_code}")
+    # Handle specific status codes
+except ESIOSError as e:
+    print(f"Unexpected ESIOS error: {e}")
+    # Generic error handling
+```
+
+### Retry Logic for Network Errors
+
+```python
+import time
+from esios.exceptions import NetworkError
+
+def fetch_with_retry(client, indicator_id, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return client.get_indicator(indicator_id)
+        except NetworkError as e:
+            if attempt == max_retries - 1:
+                raise
+            wait_time = 2 ** attempt
+            print(f"Network error, retrying in {wait_time}s...")
+            time.sleep(wait_time)
+```

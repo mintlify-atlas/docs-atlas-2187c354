@@ -1,0 +1,399 @@
+---
+title: 'config'
+description: 'CLI commands for managing python-esios configuration'
+---
+
+The `config` subcommand provides operations for reading and writing configuration values.
+
+## Configuration File
+
+**Location:** `~/.config/esios/config.toml`
+
+Configuration is stored in TOML format:
+
+```toml
+token = "your-api-token-here"
+```
+
+The file is created automatically when you first set a value.
+
+## Commands
+
+### set
+
+Set a configuration value.
+
+```bash
+esios config set KEY VALUE
+```
+
+**Arguments:**
+
+- `KEY` — Configuration key (e.g., `token`)
+- `VALUE` — Configuration value
+
+**Examples:**
+
+```bash
+# Set API token
+esios config set token your-api-token-here
+# Set token = ***
+
+# Set other config values
+esios config set cache_dir /custom/cache/path
+# Set cache_dir = /custom/cache/path
+```
+
+**Security Note:** Token values are masked in output (displayed as `***`).
+
+---
+
+### get
+
+Get a configuration value.
+
+```bash
+esios config get KEY
+```
+
+**Arguments:**
+
+- `KEY` — Configuration key to read
+
+**Examples:**
+
+```bash
+# Get API token (masked)
+esios config get token
+# token = ***
+
+# Get non-existent key
+esios config get cache_dir
+# cache_dir: (not set)
+
+# Get any config value
+esios config get custom_key
+# custom_key = custom_value
+```
+
+**Security Note:** Token values are automatically masked for security.
+
+---
+
+## Configuration Keys
+
+### token
+
+ESIOS API authentication token.
+
+```bash
+esios config set token YOUR_TOKEN_HERE
+```
+
+**How to obtain:**
+1. Visit [ESIOS](https://www.esios.ree.es)
+2. Register for an account
+3. Generate an API token from your account settings
+
+**Alternative methods:**
+- Environment variable: `export ESIOS_API_KEY=your-token`
+- CLI flag: `--token your-token` (on any command)
+
+**Resolution order:**
+1. `--token` flag (highest priority)
+2. Config file (`~/.config/esios/config.toml`)
+3. `ESIOS_API_KEY` environment variable (lowest priority)
+
+### Future Configuration Keys
+
+The config system supports arbitrary key-value pairs. Future versions may include:
+
+- `cache_dir` — Custom cache directory location
+- `cache_ttl` — Cache time-to-live in seconds
+- `default_format` — Default output format
+- `api_base_url` — Custom API endpoint
+
+---
+
+## Authentication Setup
+
+### Option 1: Config File (Recommended)
+
+Store your token permanently in the config file:
+
+```bash
+esios config set token your-api-token-here
+```
+
+Benefits:
+- Persists across terminal sessions
+- No need to set environment variables
+- Works automatically with all commands
+
+### Option 2: Environment Variable
+
+Set the token as an environment variable:
+
+```bash
+export ESIOS_API_KEY=your-api-token-here
+```
+
+Add to your shell profile for persistence:
+
+```bash
+# In ~/.bashrc or ~/.zshrc
+export ESIOS_API_KEY=your-api-token-here
+```
+
+Benefits:
+- Standard environment variable pattern
+- Works with Docker and CI/CD
+- Easy to override per-session
+
+### Option 3: CLI Flag
+
+Provide the token directly to each command:
+
+```bash
+esios indicators list --token your-api-token-here
+```
+
+Benefits:
+- No configuration needed
+- Useful for testing multiple tokens
+- Highest priority (overrides config and env)
+
+---
+
+## Common Workflows
+
+### Initial Setup
+
+```bash
+# Set your API token
+esios config set token your-api-token-here
+
+# Verify it's set (shows as ***)
+esios config get token
+
+# Test authentication
+esios indicators list
+```
+
+### Verify Configuration
+
+```bash
+# Check if token is configured
+esios config get token
+# token = ***
+
+# View config file directly
+cat ~/.config/esios/config.toml
+```
+
+### Switch Tokens
+
+```bash
+# Update to new token
+esios config set token new-token-here
+
+# Or use different token for single command
+esios indicators list --token temporary-token
+```
+
+### Backup Configuration
+
+```bash
+# Copy config file
+cp ~/.config/esios/config.toml ~/.config/esios/config.toml.backup
+
+# Restore from backup
+cp ~/.config/esios/config.toml.backup ~/.config/esios/config.toml
+```
+
+### Remove Configuration
+
+```bash
+# Delete config file
+rm ~/.config/esios/config.toml
+
+# Verify removal
+esios config get token
+# token: (not set)
+```
+
+---
+
+## Configuration File Structure
+
+The config file uses TOML format:
+
+```toml
+# ~/.config/esios/config.toml
+token = "your-api-token-here"
+custom_key = "custom_value"
+```
+
+You can edit this file directly:
+
+```bash
+# Edit with your preferred editor
+$EDITOR ~/.config/esios/config.toml
+
+# Or with nano
+nano ~/.config/esios/config.toml
+```
+
+---
+
+## Environment Variables
+
+### ESIOS_API_KEY
+
+API authentication token.
+
+```bash
+export ESIOS_API_KEY=your-api-token-here
+```
+
+**Usage:**
+
+```bash
+# Set for current session
+export ESIOS_API_KEY=your-token
+esios indicators list
+
+# Set for single command
+ESIOS_API_KEY=your-token esios indicators list
+
+# Add to shell profile for persistence
+echo 'export ESIOS_API_KEY=your-token' >> ~/.bashrc
+```
+
+---
+
+## Security Best Practices
+
+### Protect Your Token
+
+1. **Never commit tokens to git:**
+   ```bash
+   # Add to .gitignore
+   echo '~/.config/esios/config.toml' >> .gitignore
+   ```
+
+2. **Use environment variables in CI/CD:**
+   ```yaml
+   # GitHub Actions example
+   env:
+     ESIOS_API_KEY: ${{ secrets.ESIOS_API_KEY }}
+   ```
+
+3. **Restrict file permissions:**
+   ```bash
+   chmod 600 ~/.config/esios/config.toml
+   ```
+
+### Token Rotation
+
+```bash
+# Generate new token on ESIOS website
+# Update config with new token
+esios config set token new-token-here
+
+# Verify it works
+esios indicators list
+```
+
+---
+
+## Troubleshooting
+
+### No API Token Error
+
+```
+Error: No API token. Set ESIOS_API_KEY or run: esios config set token <KEY>
+```
+
+**Solutions:**
+
+```bash
+# Option 1: Set in config file
+esios config set token your-token
+
+# Option 2: Set environment variable
+export ESIOS_API_KEY=your-token
+
+# Option 3: Use CLI flag
+esios indicators list --token your-token
+```
+
+### Config File Not Found
+
+```bash
+# Create config directory
+mkdir -p ~/.config/esios
+
+# Set token (creates file automatically)
+esios config set token your-token
+```
+
+### Token Not Working
+
+```bash
+# Verify token is set
+esios config get token
+
+# Check config file exists
+ls -la ~/.config/esios/config.toml
+
+# Test with explicit token
+esios indicators list --token your-token
+
+# If still fails, token may be invalid/expired
+# Generate new token on ESIOS website
+```
+
+### Permission Denied
+
+```bash
+# Fix permissions on config directory
+chmod 700 ~/.config/esios
+chmod 600 ~/.config/esios/config.toml
+```
+
+---
+
+## Configuration Priority
+
+When multiple sources provide the same configuration, they are resolved in this order (highest to lowest):
+
+1. **CLI flag** — `--token your-token`
+2. **Config file** — `~/.config/esios/config.toml`
+3. **Environment variable** — `ESIOS_API_KEY`
+
+**Example:**
+
+```bash
+# Config file has: token = "config-token"
+# Environment has: ESIOS_API_KEY="env-token"
+
+esios indicators list
+# Uses: config-token
+
+esios indicators list --token flag-token
+# Uses: flag-token
+
+export ESIOS_API_KEY=env-token
+unset config file
+esios indicators list
+# Uses: env-token
+```
+
+---
+
+## See Also
+
+- [CLI Overview](/cli/overview) — Authentication setup and quick start
+- [Cache](/cli/cache) — Cache location and management
+- [Indicators](/cli/indicators) — Using the API with authentication

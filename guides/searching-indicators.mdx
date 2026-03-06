@@ -1,0 +1,140 @@
+---
+title: Searching for Indicators
+description: Learn how to discover and search for specific indicators in the ESIOS catalog
+---
+
+The ESIOS API provides access to hundreds of energy market indicators. This guide shows you how to explore the catalog and find the indicators you need.
+
+## Listing All Indicators
+
+Retrieve the complete catalog of available indicators:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your_api_key")
+
+# Get all indicators as a DataFrame
+indicators = client.indicators.list()
+
+print(f"Total indicators: {len(indicators)}")
+print(indicators.head())
+```
+
+The catalog is cached locally for 24 hours by default, so subsequent calls are fast and don't hit the API.
+
+## Searching by Name
+
+Use the `search()` method to find indicators by name (case-insensitive substring match):
+
+```python
+# Find all price-related indicators
+price_indicators = client.indicators.search("precio")
+
+print(price_indicators[["name", "short_name"]])
+```
+
+<Tip>
+The search method looks for matches in the indicator name field, supporting partial matches. For example, searching for "pvpc" will find all PVPC tariff indicators.
+</Tip>
+
+## Common Search Patterns
+
+<CodeGroup>
+
+```python Market Prices
+# Find day-ahead market prices
+market_prices = client.indicators.search("mercado diario")
+
+# Filter to specific market price
+pvpc = client.indicators.search("pvpc")
+```
+
+```python Generation
+# Find renewable generation indicators
+renewables = client.indicators.search("renovable")
+
+# Solar generation
+solar = client.indicators.search("solar")
+
+# Wind generation
+wind = client.indicators.search("eólica")
+```
+
+```python Demand
+# System demand indicators
+demand = client.indicators.search("demanda")
+
+# Forecasted demand
+forecast = client.indicators.search("prevista")
+```
+
+</CodeGroup>
+
+## Viewing Indicator Details
+
+Once you find an indicator, get detailed information:
+
+```python
+# Get indicator handle
+handle = client.indicators.get(600)  # 600 = Precio mercado diario
+
+print(f"ID: {handle.id}")
+print(f"Name: {handle.name}")
+print(f"Available geographies: {len(handle.geos)}")
+
+# View all metadata
+import json
+print(json.dumps(handle.metadata, indent=2))
+```
+
+## Exploring Indicator Catalog
+
+Filter and sort the catalog to find relevant indicators:
+
+```python
+import pandas as pd
+
+# Get full catalog
+df = client.indicators.list()
+
+# Show indicators with 'price' in name
+price_df = df[df['name'].str.contains('precio', case=False, na=False)]
+
+# Sort by ID
+price_df_sorted = price_df.sort_index()
+
+print(price_df_sorted[['name', 'short_name']].head(10))
+```
+
+## Working with Multi-Geography Indicators
+
+Some indicators provide data for multiple countries or regions:
+
+```python
+# Indicator 600 includes multiple European countries
+handle = client.indicators.get(600)
+
+# View available geographies
+geos_df = handle.geos_dataframe()
+print(geos_df)
+
+# Output:
+#   geo_id        geo_name
+# 0      3          España
+# 1   8741        Portugal
+# 2   8742         Francia
+# 3   8743  United Kingdom
+```
+
+<Note>
+Geography information is cached per-indicator, so you can work offline once metadata has been fetched.
+</Note>
+
+## Next Steps
+
+Once you've found your indicator:
+
+- [Fetch historical data](/guides/historical-data)
+- [Work with multiple geographies](/guides/multi-geography)
+- [Compare multiple indicators](/api-reference/indicators/compare)

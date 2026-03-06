@@ -1,0 +1,230 @@
+---
+title: Working with Multi-Geography Data
+description: Handle indicators that provide data across multiple countries or regions
+---
+
+Many ESIOS indicators provide data for multiple geographies - Spain, Portugal, France, and other European countries. This guide shows you how to work with multi-geography indicators effectively.
+
+## Understanding Geography Structure
+
+Each geography has two identifiers:
+
+- **geo_id**: Numeric identifier (e.g., `3` for Spain, `8741` for Portugal)
+- **geo_name**: Human-readable name (e.g., "España", "Portugal")
+
+## Discovering Available Geographies
+
+Check which geographies an indicator provides:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="your_api_key")
+
+# Get indicator handle
+handle = client.indicators.get(600)  # European day-ahead prices
+
+# View as list of dicts
+print(handle.geos)
+# Output: [{'geo_id': 3, 'geo_name': 'España'}, {'geo_id': 8741, 'geo_name': 'Portugal'}, ...]
+
+# View as DataFrame
+geos_df = handle.geos_dataframe()
+print(geos_df)
+```
+
+<Note>
+Geography metadata is cached per-indicator. The first API call enriches the local cache with geo mappings discovered from actual data, which may include regions not listed in the metadata.
+</Note>
+
+## Fetching All Geographies
+
+By default, `historical()` returns all available geographies:
+
+```python
+handle = client.indicators.get(600)
+
+# Fetch all geographies
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-07"
+)
+
+print(df.columns)
+# Output: Index(['España', 'Francia', 'Portugal', 'Alemania', ...], dtype='object')
+
+print(df.head())
+```
+
+The DataFrame uses a `DatetimeIndex` with geography names as columns (wide format).
+
+## Filtering to Specific Geographies
+
+Use `geo_ids` to request only specific countries:
+
+```python
+# Fetch only Spain and Portugal
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    geo_ids=[3, 8741]
+)
+
+print(df.columns)
+# Output: Index(['España', 'Portugal'], dtype='object')
+```
+
+<Tip>
+Filtering by geo_ids at request time is more efficient than fetching all and selecting columns, especially when using cache. The cache tracks coverage per-column, so requesting specific geos enables smarter gap detection.
+</Tip>
+
+## Resolving Geography References
+
+Use `resolve_geo()` to convert names or IDs to geo_ids:
+
+```python
+handle = client.indicators.get(600)
+
+# Resolve by name (case-insensitive substring match)
+geo_id = handle.resolve_geo("españa")
+print(geo_id)  # Output: 3
+
+# Resolve by ID (returns as-is)
+geo_id = handle.resolve_geo(3)
+print(geo_id)  # Output: 3
+
+# Resolve by partial name
+geo_id = handle.resolve_geo("port")  # Matches "Portugal"
+print(geo_id)  # Output: 8741
+```
+
+This is useful for building user-facing tools where users specify countries by name.
+
+## Comparing Geographies
+
+Visualize or analyze differences across regions:
+
+```python
+import matplotlib.pyplot as plt
+
+handle = client.indicators.get(600)
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-07",
+    geo_ids=[3, 8741, 8742]  # España, Portugal, Francia
+)
+
+# Plot price comparison
+df.plot(figsize=(12, 6), title="Day-Ahead Prices by Country")
+plt.ylabel("Price (€/MWh)")
+plt.legend(title="Country")
+plt.show()
+```
+
+## Working with Single-Geography Results
+
+When filtering to a single geography, the column is named by the geography:
+
+```python
+# Request only Spain
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    geo_ids=[3]
+)
+
+print(df.columns)
+# Output: Index(['España'], dtype='object')
+
+# Access the series
+spain_prices = df["España"]
+```
+
+## Handling Missing Geographies
+
+If you request a geography that doesn't exist, you'll get an empty result or only available columns:
+
+```python
+try:
+    geo_id = handle.resolve_geo("nonexistent")
+except ValueError as e:
+    print(e)
+    # Output: No geo matching 'nonexistent' for indicator 600. Available: España, Portugal, ...
+```
+
+## Multi-Geography Cache Behavior
+
+The cache tracks coverage per-column (per-geography):
+
+<Steps>
+
+1. **First request** for Spain fetches and caches Spain column
+
+2. **Second request** for Portugal fetches only Portugal (Spain stays cached)
+
+3. **Combined request** for both reads Spain from cache, fetches Portugal from API
+
+4. **Full request** (no geo_ids filter) reads all cached geos, fetches missing ones
+
+</Steps>
+
+```python
+handle = client.indicators.get(600)
+
+# Cache Spain
+df1 = handle.historical("2024-01-01", "2024-01-31", geo_ids=[3])
+
+# Cache Portugal (Spain not re-fetched)
+df2 = handle.historical("2024-01-01", "2024-01-31", geo_ids=[8741])
+
+# Read both from cache
+df3 = handle.historical("2024-01-01", "2024-01-31", geo_ids=[3, 8741])
+# No API calls made - both columns cached
+```
+
+## Geographic Aggregation
+
+Request the API to aggregate across geographies:
+
+```python
+# Sum across Spain and Portugal
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    geo_ids=[3, 8741],
+    geo_agg="sum"
+)
+
+# Note: This disables caching and returns aggregated values
+```
+
+<Warning>
+Using `geo_agg` or `geo_trunc` parameters disables local caching because the API performs the aggregation. Use client-side pandas operations on cached data for better performance.
+</Warning>
+
+## Advanced: Discovering New Geographies
+
+Some indicators don't list all geographies in metadata. The library auto-discovers them from data:
+
+```python
+handle = client.indicators.get(600)
+
+# Initial metadata may be incomplete
+print(f"Known geos: {len(handle.geos)}")
+
+# Fetch data - discovers additional geos from response
+df = handle.historical("2024-01-01", "2024-01-07")
+
+# Metadata enriched with discovered geos
+print(f"Known geos after fetch: {len(handle.geos)}")
+
+# New geos persisted to global registry and per-indicator meta.json
+```
+
+This ensures the geography registry stays complete even when API metadata is partial.
+
+## Next Steps
+
+- [Compare indicators across geographies](/api-reference/indicators/compare)
+- [Understand cache behavior](/guides/cache-management)
+- [Download multi-geography archives](/guides/downloading-archives)

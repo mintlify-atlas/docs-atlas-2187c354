@@ -1,0 +1,352 @@
+---
+title: "Indicators"
+description: "Fetch time-series electricity market data with automatic chunking and multi-geography support"
+icon: "chart-line"
+---
+
+Indicators are time-series datasets published by ESIOS, covering electricity prices, demand, generation, and more. The `IndicatorsManager` provides methods to list, search, and fetch historical data.
+
+## Quick Start
+
+```python
+from esios import ESIOSClient
+
+with ESIOSClient() as client:
+    # Get an indicator handle
+    handle = client.indicators.get(600)
+    
+    # Fetch historical data
+    df = handle.historical("2025-01-01", "2025-01-07")
+    print(df)
+```
+
+## Listing Indicators
+
+List all available indicators as a DataFrame:
+
+```python
+with ESIOSClient() as client:
+    indicators = client.indicators.list()
+    print(indicators.head())
+```
+
+<Info>
+  The indicator list is cached for 24 hours by default. The first call fetches from the API; subsequent calls use the cache.
+</Info>
+
+### Searching Indicators
+
+Search by name using case-insensitive substring matching:
+
+```python
+with ESIOSClient() as client:
+    # Find all price-related indicators
+    prices = client.indicators.search("precio")
+    print(prices[["name", "short_name"]])
+```
+
+## IndicatorHandle
+
+Calling `client.indicators.get(id)` returns an `IndicatorHandle` — a bound object that provides metadata and data retrieval methods.
+
+```python
+handle = client.indicators.get(600)
+
+# Access metadata
+print(handle.id)          # 600
+print(handle.name)        # "Precio mercado Spot Diario"
+print(handle.metadata)    # Full API response dict
+print(handle.geos)        # Available geographies
+```
+
+### Geography Support
+
+Many indicators return data for multiple geographies (countries, regions, or provinces):
+
+```python
+# List available geographies
+handle = client.indicators.get(600)
+print(handle.geos)
+# [{'geo_id': 3, 'geo_name': 'España'},
+#  {'geo_id': 8741, 'geo_name': 'Portugal'}, ...]
+
+# Get geos as DataFrame
+geos_df = handle.geos_dataframe()
+print(geos_df)
+```
+
+#### Filtering by Geography
+
+Filter results to specific geographies using `geo_ids`:
+
+```python
+# Get data for Spain only
+df = handle.historical(
+    "2025-01-01", "2025-01-07",
+    geo_ids=[3]  # Spain
+)
+
+# Multiple geographies
+df = handle.historical(
+    "2025-01-01", "2025-01-07",
+    geo_ids=[3, 8741]  # Spain and Portugal
+)
+```
+
+<Tip>
+  Use `handle.resolve_geo()` to convert geo names to IDs:
+  
+  ```python
+  spain_id = handle.resolve_geo("España")
+  # Returns: 3
+  ```
+</Tip>
+
+## Fetching Historical Data
+
+The `historical()` method fetches time-series data for a date range:
+
+```python
+df = handle.historical(
+    start="2025-01-01",
+    end="2025-01-07",
+    geo_ids=None,           # Filter to specific geos (default: all)
+    locale="es",            # Language for metadata (default: "es")
+    time_agg=None,          # Time aggregation ("sum", "average")
+    geo_agg=None,           # Geography aggregation
+    time_trunc=None,        # Time truncation ("hour", "day")
+    geo_trunc=None,         # Geography truncation
+)
+```
+
+### Date Formats
+
+Accepts flexible date formats:
+
+```python
+# ISO format strings
+df = handle.historical("2025-01-01", "2025-01-07")
+
+# Pandas Timestamp objects
+import pandas as pd
+df = handle.historical(
+    pd.Timestamp("2025-01-01"),
+    pd.Timestamp("2025-01-07")
+)
+```
+
+### Return Format
+
+Returns a pandas DataFrame with:
+- **DatetimeIndex**: Timezone-aware timestamps (`Europe/Madrid`)
+- **Columns**: Geography names or indicator ID
+
+<CodeGroup>
+
+```python Single Geography
+# Indicator with single geo (e.g., 1293 - Demanda programada)
+handle = client.indicators.get(1293)
+df = handle.historical("2025-01-01", "2025-01-07")
+
+print(df)
+#                         1293
+# datetime                    
+# 2025-01-01 00:00:00  25123.0
+# 2025-01-01 01:00:00  24567.0
+# ...
+```
+
+```python Multiple Geographies
+# Indicator with multiple geos (e.g., 600 - Spot prices)
+handle = client.indicators.get(600)
+df = handle.historical("2025-01-01", "2025-01-07")
+
+print(df)
+#                       España  Portugal  Francia
+# datetime                                        
+# 2025-01-01 00:00:00    45.23     42.15    48.90
+# 2025-01-01 01:00:00    43.12     41.05    46.23
+# ...
+```
+
+</CodeGroup>
+
+### Automatic Chunking
+
+The ESIOS API limits responses to ~3 weeks of data per request. The client automatically chunks large date ranges:
+
+```python
+# This will be split into multiple API calls
+df = handle.historical("2020-01-01", "2025-01-01")
+```
+
+From `src/esios/constants.py:17-18`:
+
+```python
+# ESIOS API limits responses to ~3 weeks of data per request
+CHUNK_SIZE_DAYS = 21
+```
+
+<Info>
+  Chunking is automatic and transparent. The cache stores all chunks in a single parquet file.
+</Info>
+
+## Comparing Multiple Indicators
+
+Fetch multiple indicators and merge into a single DataFrame:
+
+```python
+df = client.indicators.compare(
+    indicator_ids=[600, 1293, 10014],
+    start="2025-01-01",
+    end="2025-01-07",
+    geo_ids=[3]  # Optional: filter all indicators to Spain
+)
+
+print(df)
+#                       Precio mercado Spot Diario  Demanda programada  Generación eólica
+# datetime                                                                                  
+# 2025-01-01 00:00:00                        45.23             25123.0             4523.0
+# 2025-01-01 01:00:00                        43.12             24567.0             4612.0
+# ...
+```
+
+### Multi-Index Columns
+
+When comparing indicators with multiple geographies, the result uses a MultiIndex:
+
+```python
+df = client.indicators.compare(
+    indicator_ids=[600, 1293],  # 600 has multiple geos, 1293 has one
+    start="2025-01-01",
+    end="2025-01-07",
+)
+
+print(df.columns)
+# MultiIndex([('Precio mercado Spot Diario', 'España'),
+#             ('Precio mercado Spot Diario', 'Portugal'),
+#             ('Demanda programada', '1293')],
+#            names=['indicator', 'geo'])
+```
+
+## Metadata Enrichment
+
+The client automatically enriches geography metadata from API responses:
+
+```python
+handle = client.indicators.get(600)
+
+# First fetch: learns geo_id → geo_name mappings from API response
+df = handle.historical("2025-01-01", "2025-01-07")
+
+# Mappings are persisted to cache and reused
+print(handle.geos)  # Now includes all discovered geographies
+```
+
+From `src/esios/managers/indicators.py:49-74`:
+
+```python
+def _enrich_geo_map(self, values: list[dict]) -> None:
+    """Learn geo_id → geo_name mappings from API response values.
+    
+    The indicator metadata may not list all geos (e.g. 600 omits
+    Países Bajos). This enriches the metadata from actual data
+    and persists new mappings to the global geos registry and
+    per-indicator meta.json.
+    """
+    known_ids = {g["geo_id"] for g in self.geos}
+    new_geos: dict[str, str] = {}
+    for v in values:
+        gid = v.get("geo_id")
+        gname = v.get("geo_name")
+        if gid is not None and gname:
+            if gid not in known_ids:
+                self.metadata.setdefault("geos", []).append(
+                    {"geo_id": gid, "geo_name": gname}
+                )
+                known_ids.add(gid)
+            new_geos[str(gid)] = gname
+    
+    # Persist to global geos registry and per-indicator meta
+    cache = self._cache
+    if cache.config.enabled and new_geos:
+        cache.merge_geos(new_geos)
+        self._persist_meta()
+```
+
+<Note>
+  Geography mappings are shared across all indicators in a global `geos.json` registry.
+</Note>
+
+## Aggregation Options
+
+The API supports time and geography aggregation:
+
+### Time Aggregation
+
+```python
+# Sum hourly values into daily totals
+df = handle.historical(
+    "2025-01-01", "2025-01-31",
+    time_agg="sum",
+    time_trunc="day"
+)
+
+# Average hourly values
+df = handle.historical(
+    "2025-01-01", "2025-01-31",
+    time_agg="average",
+    time_trunc="day"
+)
+```
+
+### Geography Aggregation
+
+```python
+# Sum across all geographies
+df = handle.historical(
+    "2025-01-01", "2025-01-07",
+    geo_agg="sum"
+)
+```
+
+<Warning>
+  Aggregation parameters disable caching. Use them sparingly for performance.
+</Warning>
+
+## Cache Integration
+
+Indicator data is automatically cached locally. See the [Caching](/core/caching) page for details on:
+
+- Cache directory structure
+- Gap detection and partial fetches
+- TTL settings for recent data
+- Cache maintenance
+
+```python
+with ESIOSClient(cache=True, cache_recent_ttl=48) as client:
+    handle = client.indicators.get(600)
+    
+    # First call: fetches from API, writes to cache
+    df = handle.historical("2025-01-01", "2025-01-07")
+    
+    # Second call: reads from cache
+    df = handle.historical("2025-01-01", "2025-01-07")
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="ESIOSClient" icon="plug" href="/core/client">
+    Configure the API client
+  </Card>
+  <Card title="Caching" icon="database" href="/core/caching">
+    Learn about local parquet caching
+  </Card>
+  <Card title="Archives" icon="file-zipper" href="/core/archives">
+    Download raw archive files
+  </Card>
+  <Card title="Catalog" icon="book" href="/cli/catalog">
+    Browse available indicators offline
+  </Card>
+</CardGroup>

@@ -1,0 +1,595 @@
+---
+title: "Caching"
+description: "Local parquet cache for fast, gap-aware historical data retrieval"
+icon: "database"
+---
+
+The caching system stores indicator time-series data as parquet files, fetching only missing date ranges on subsequent requests. Historical electricity data is immutable once published, making aggressive caching safe and enabled by default.
+
+## Overview
+
+Caching is automatic and transparent:
+
+```python
+from esios import ESIOSClient
+
+with ESIOSClient(cache=True) as client:
+    handle = client.indicators.get(600)
+    
+    # First call: fetches from API, writes to cache
+    df = handle.historical("2025-01-01", "2025-01-07")
+    
+    # Second call: reads from cache (instant)
+    df = handle.historical("2025-01-01", "2025-01-07")
+```
+
+<Info>
+  Caching is enabled by default. Disable it with `cache=False`.
+</Info>
+
+## Cache Directory
+
+The default cache location respects XDG Base Directory standards:
+
+```bash
+# Linux/macOS
+~/.cache/esios/
+
+# Windows
+%LOCALAPPDATA%\esios\Cache\
+```
+
+### Custom Cache Location
+
+```python
+with ESIOSClient(cache_dir="/mnt/data/esios-cache") as client:
+    # Cache stored at /mnt/data/esios-cache/
+    pass
+```
+
+### Directory Structure
+
+```
+~/.cache/esios/
+├── geos.json                      # Global geo_id → geo_name registry
+├── indicators/
+│   ├── catalog.json               # Indicator list cache
+│   ├── 600/
+│   │   ├── data.parquet           # Wide-format time-series
+│   │   └── meta.json              # Per-indicator metadata
+│   ├── 1293/
+│   │   ├── data.parquet
+│   │   └── meta.json
+│   └── ...
+└── archives/
+    └── 1/
+        ├── I90DIA_20250115/
+        │   └── I90DIA_20250115
+        └── ...
+```
+
+From `src/esios/cache.py:7-26`:
+
+```python
+"""
+Storage layout::
+
+    {cache_dir}/
+    ├── geos.json                      # Global geo_id → geo_name registry
+    ├── indicators/
+    │   ├── catalog.json               # Indicator list cache
+    │   ├── 600/
+    │   │   ├── data.parquet           # Wide-format time-series
+    │   │   └── meta.json              # Per-indicator metadata
+    │   └── 10034/
+    │       ├── data.parquet
+    │       └── meta.json
+    └── archives/
+        └── 1/
+            └── I90DIA_20250101/
+
+Each indicator is a single parquet file in wide format: the DatetimeIndex
+holds timestamps, and columns are geo_names (e.g. "España", "Portugal").
+NaN cells indicate that a particular geo has not been fetched for that
+time range.
+"""
+```
+
+## Data Storage Format
+
+Indicator data is stored in **wide format** as parquet files:
+
+- **Index**: DatetimeIndex (timezone-aware, `Europe/Madrid`)
+- **Columns**: `geo_id` as strings (e.g., `"3"` for Spain, `"8741"` for Portugal)
+- **Values**: Numeric data, NaN for missing ranges
+
+### Wide Format Example
+
+```python
+# Cache stores columns as geo_id (internal format)
+#                           3      8741    8826
+# datetime                                      
+# 2025-01-01 00:00:00   45.23     42.15   48.90
+# 2025-01-01 01:00:00   43.12     41.05   46.23
+# 2025-01-01 02:00:00     NaN       NaN     NaN  ← Gap in cache
+
+# User sees columns as geo_name (output format)
+#                       España  Portugal  Francia
+# datetime                                        
+# 2025-01-01 00:00:00    45.23     42.15    48.90
+# 2025-01-01 01:00:00    43.12     41.05    46.23
+```
+
+From `src/esios/managers/indicators.py:286-316`:
+
+```python
+def _finalize(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Prepare DataFrame for user-facing output.
+    
+    Cache stores columns as str(geo_id). This method renames them to
+    human-readable geo_names at the very end, just before returning to
+    the caller. Single-value/single-geo indicators get the indicator ID.
+    """
+    if df.empty:
+        return df
+    
+    if len(df.columns) == 1:
+        col = df.columns[0]
+        if col == "value":
+            df = df.rename(columns={"value": str(self.id)})
+            return df
+    
+    # Rename str(geo_id) columns → geo_name
+    geo_map = self._build_geo_map()  # str(geo_id) → geo_name
+    rename = {col: geo_map[col] for col in df.columns if col in geo_map}
+    if rename:
+        df = df.rename(columns=rename)
+```
+
+<Note>
+  Columns are stored as `geo_id` strings in cache for stability. They're renamed to `geo_name` only when returned to the user.
+</Note>
+
+## Gap Detection
+
+The cache intelligently detects missing date ranges and fetches only what's needed:
+
+```python
+with ESIOSClient() as client:
+    handle = client.indicators.get(600)
+    
+    # Cache: Jan 1-7
+    df = handle.historical("2025-01-01", "2025-01-07")
+    
+    # Request: Jan 1-15 → fetches only Jan 8-15 from API
+    df = handle.historical("2025-01-01", "2025-01-15")
+```
+
+### Per-Column Gap Detection
+
+Gap detection is per-column (per-geography):
+
+```python
+with ESIOSClient() as client:
+    handle = client.indicators.get(600)
+    
+    # Cache Spain data for Jan 1-7
+    df = handle.historical("2025-01-01", "2025-01-07", geo_ids=[3])
+    
+    # Request Portugal → fetches full range (cache has no Portugal column)
+    df = handle.historical("2025-01-01", "2025-01-07", geo_ids=[8741])
+    
+    # Request Spain again → uses cache (has Spain column)
+    df = handle.historical("2025-01-01", "2025-01-07", geo_ids=[3])
+```
+
+From `src/esios/cache.py:266-276`:
+
+```python
+# If specific columns requested, check only those (per-geo gap detection)
+if columns:
+    missing = [c for c in columns if c not in cached_df.columns]
+    if missing:
+        return [DateRange(start, end)]
+    mask = cached_df[columns].notna().all(axis=1)
+    effective_df = cached_df[mask]
+    if effective_df.empty:
+        return [DateRange(start, end)]
+else:
+    effective_df = cached_df
+```
+
+<Tip>
+  Filter to specific geographies with `geo_ids` to optimize cache usage. Requesting all geographies every time keeps the cache complete.
+</Tip>
+
+## TTL Settings
+
+The cache uses time-to-live (TTL) settings to balance freshness and performance:
+
+### Recent Data TTL
+
+Data within `cache_recent_ttl` hours of now is re-fetched:
+
+```python
+with ESIOSClient(cache_recent_ttl=48) as client:
+    # Data older than 48 hours is cached indefinitely
+    # Data within 48 hours is re-fetched to get updates
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+```
+
+**Default**: 48 hours
+
+From `src/esios/cache.py:52-53`:
+
+```python
+# Data older than this (hours) is considered final and won't be re-fetched
+_DEFAULT_RECENT_TTL_HOURS = 48
+```
+
+<Info>
+  ESIOS updates recent data as measurements are finalized. The 48-hour TTL ensures you get corrected values.
+</Info>
+
+### Metadata TTL
+
+Indicator metadata is cached separately:
+
+```python
+with ESIOSClient() as client:
+    # First call: fetches metadata from API
+    handle = client.indicators.get(600)
+    
+    # Within 7 days: uses cached metadata
+    handle = client.indicators.get(600)
+```
+
+**Default**: 7 days
+
+From `src/esios/cache.py:55-57`:
+
+```python
+# TTL for metadata caches
+_DEFAULT_META_TTL_DAYS = 7
+_DEFAULT_CATALOG_TTL_HOURS = 24
+```
+
+### Catalog TTL
+
+The indicator list is cached:
+
+```python
+with ESIOSClient() as client:
+    # First call: fetches from API
+    indicators = client.indicators.list()
+    
+    # Within 24 hours: uses cached list
+    indicators = client.indicators.list()
+```
+
+**Default**: 24 hours
+
+## Cache Operations
+
+The cache supports read, write, and maintenance operations.
+
+### Reading Cache
+
+```python
+from esios.cache import CacheStore, CacheConfig
+import pandas as pd
+
+config = CacheConfig(enabled=True)
+cache = CacheStore(config)
+
+# Read cached data for a date range
+df = cache.read(
+    endpoint="indicators",
+    indicator_id=600,
+    start=pd.Timestamp("2025-01-01"),
+    end=pd.Timestamp("2025-01-07"),
+    columns=["3", "8741"],  # Optional: filter to specific geo_ids
+)
+```
+
+### Writing Cache
+
+```python
+# Write new data (merges with existing)
+cache.write(
+    endpoint="indicators",
+    indicator_id=600,
+    df=df,  # Wide-format DataFrame with DatetimeIndex
+)
+```
+
+From `src/esios/cache.py:204-237`:
+
+```python
+def write(
+    self,
+    endpoint: str,
+    indicator_id: int,
+    df: pd.DataFrame,
+) -> None:
+    """Merge new wide-format data with existing cache and persist.
+    
+    *df* should already be in wide format (columns = geo_names or "value",
+    index = DatetimeIndex). New data is merged with existing using
+    ``combine_first`` so that new values fill in NaN cells without
+    overwriting existing data, then overlapping rows use the new values.
+    """
+    if df.empty:
+        return
+    
+    path = self._parquet_path(endpoint, indicator_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Read existing and merge
+    existing = pd.DataFrame()
+    if path.exists():
+        try:
+            existing = pd.read_parquet(path)
+        except Exception:
+            logger.warning("Corrupted cache at %s — overwriting.", path)
+    
+    if not existing.empty:
+        merged = df.combine_first(existing)
+        merged = merged.sort_index()
+    else:
+        merged = df.sort_index()
+    
+    _atomic_write_parquet(path, merged)
+```
+
+<Note>
+  Writes are atomic (temp file + rename). The cache remains consistent even if the process is interrupted.
+</Note>
+
+### Clearing Cache
+
+Remove cached data:
+
+```python
+with ESIOSClient() as client:
+    cache = client.cache
+    
+    # Clear everything
+    count = cache.clear()
+    print(f"Removed {count} files")
+    
+    # Clear all indicators
+    count = cache.clear(endpoint="indicators")
+    
+    # Clear one indicator
+    count = cache.clear(endpoint="indicators", indicator_id=600)
+```
+
+### Cache Status
+
+Inspect cache statistics:
+
+```python
+with ESIOSClient() as client:
+    status = client.cache.status()
+    print(status)
+    # {
+    #   "path": "/home/user/.cache/esios",
+    #   "files": 42,
+    #   "size_mb": 15.3,
+    #   "endpoints": {
+    #     "indicators": 38,
+    #     "archives": 4
+    #   }
+    # }
+```
+
+## Disabling Cache
+
+Disable caching for specific use cases:
+
+```python
+# Disable globally
+with ESIOSClient(cache=False) as client:
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+    # Always fetches from API
+```
+
+<Warning>
+  Disabling cache significantly increases API calls and response times. Only disable if you need real-time data or are debugging.
+</Warning>
+
+### When Cache is Disabled
+
+The cache is automatically disabled for certain operations:
+
+1. **Aggregation queries**: `time_agg`, `geo_agg`, `time_trunc`, `geo_trunc`
+2. **Manual disable**: `cache=False`
+
+```python
+with ESIOSClient() as client:
+    handle = client.indicators.get(600)
+    
+    # Cache disabled: aggregation in use
+    df = handle.historical(
+        "2025-01-01", "2025-01-31",
+        time_agg="sum",
+        time_trunc="day"
+    )
+```
+
+From `src/esios/managers/indicators.py:180-183`:
+
+```python
+# -- Cache-aware fetch -------------------------------------------------
+cache = self._cache
+use_cache = cache.config.enabled and not time_agg and not geo_agg
+```
+
+## Global Geos Registry
+
+The cache maintains a global `geo_id → geo_name` registry:
+
+```python
+from esios.cache import CacheStore, CacheConfig
+
+config = CacheConfig(enabled=True)
+cache = CacheStore(config)
+
+# Read all known geographies
+geos = cache.read_geos()
+print(geos)
+# {"3": "España", "8741": "Portugal", "8826": "Francia", ...}
+
+# Add new mappings
+cache.merge_geos({"9999": "Custom Geo"})
+```
+
+### Automatic Enrichment
+
+The registry is automatically enriched as you fetch data:
+
+```python
+with ESIOSClient() as client:
+    # First fetch learns geo mappings from API response
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+    
+    # Mappings are persisted to geos.json
+    geos = client.cache.read_geos()
+    print(geos)  # Includes all discovered geographies
+```
+
+From `src/esios/cache.py:326-343`:
+
+```python
+def merge_geos(self, geos: dict[str, str]) -> None:
+    """Merge new geo_id → geo_name mappings into the global registry.
+    
+    Existing mappings are preserved; new ones are added.
+    """
+    if not geos:
+        return
+    
+    existing = self.read_geos()
+    existing.update(geos)
+    
+    data = {
+        "version": 1,
+        "updated_at": datetime.now().isoformat(),
+        "geos": existing,
+    }
+    path = self._geos_path()
+    _atomic_write_json(path, data)
+```
+
+<Info>
+  The global registry improves geo name resolution across all indicators, even if an indicator's metadata is incomplete.
+</Info>
+
+## Archive Caching
+
+Archive files are also cached, but with different behavior:
+
+- **No TTL**: Archives are cached indefinitely
+- **No gap detection**: Entire archives are cached or missing
+- **Directory per file**: Each archive date gets its own folder
+
+See the [Archives](/core/archives) page for details.
+
+## Cache Migration
+
+The cache automatically migrates from old layouts:
+
+```python
+# Old layout (pre-v0.2.0)
+~/.cache/esios/indicators/600.parquet
+
+# New layout (v0.2.0+)
+~/.cache/esios/indicators/600/data.parquet
+~/.cache/esios/indicators/600/meta.json
+```
+
+From `src/esios/cache.py:124-144`:
+
+```python
+def _maybe_migrate(self, endpoint: str, item_id: int) -> None:
+    """Auto-migrate old flat cache files to new directory layout.
+    
+    Old layout: ``{cache_dir}/{endpoint}/{item_id}.parquet``
+    New layout: ``{cache_dir}/{endpoint}/{item_id}/data.parquet``
+    """
+    old_path = self.config.cache_dir / endpoint / f"{item_id}.parquet"
+    if not old_path.exists():
+        return
+    
+    new_path = self._parquet_path(endpoint, item_id)
+    if new_path.exists():
+        # New layout already has data — just remove old file
+        old_path.unlink()
+        logger.info("Removed old cache file %s (already migrated).", old_path)
+        return
+    
+    # Move old flat file into new directory layout
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+    old_path.rename(new_path)
+    logger.info("Migrated cache %s → %s", old_path, new_path)
+```
+
+<Note>
+  Migration is automatic and transparent. No manual action required.
+</Note>
+
+## Configuration Object
+
+For advanced use, configure the cache directly:
+
+```python
+from esios import ESIOSClient
+from esios.cache import CacheConfig
+from pathlib import Path
+
+config = CacheConfig(
+    enabled=True,
+    cache_dir=Path("/custom/cache/dir"),
+    recent_ttl_hours=24,
+    meta_ttl_days=14,
+    catalog_ttl_hours=48,
+)
+
+# Pass config to client (not currently supported — use constructor params)
+# This is for internal use or testing
+```
+
+From `src/esios/cache.py:60-72`:
+
+```python
+@dataclass
+class CacheConfig:
+    """Cache configuration."""
+    
+    enabled: bool = True
+    cache_dir: Path = field(default_factory=lambda: _DEFAULT_CACHE_DIR)
+    recent_ttl_hours: int = _DEFAULT_RECENT_TTL_HOURS
+    meta_ttl_days: int = _DEFAULT_META_TTL_DAYS
+    catalog_ttl_hours: int = _DEFAULT_CATALOG_TTL_HOURS
+    
+    def __post_init__(self) -> None:
+        self.cache_dir = Path(self.cache_dir)
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="ESIOSClient" icon="plug" href="/core/client">
+    Configure cache settings on the client
+  </Card>
+  <Card title="Indicators" icon="chart-line" href="/core/indicators">
+    See how indicators use the cache
+  </Card>
+  <Card title="Archives" icon="file-zipper" href="/core/archives">
+    Learn about archive caching
+  </Card>
+  <Card title="Cache Management" icon="gauge-high" href="/guides/cache-management">
+    Optimize cache usage for best performance
+  </Card>
+</CardGroup>

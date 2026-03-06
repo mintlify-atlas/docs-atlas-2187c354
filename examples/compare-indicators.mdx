@@ -1,0 +1,96 @@
+---
+title: Compare Indicators
+description: Fetch multiple indicators and merge them into a single DataFrame for cross-indicator analysis
+---
+
+Fetch multiple indicators and merge them into a single DataFrame for cross-indicator analysis.
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Multi-geo compare
+
+Without a geo filter, `compare()` returns a MultiIndex column `(indicator_name, geo_name)` — one column per indicator×geo combo:
+
+```python
+df = client.indicators.compare(
+    [600, 612],
+    start="2025-01-01",
+    end="2025-01-07",
+)
+df
+```
+
+Returns:
+
+```
+indicator                 Precio mercado SPOT Diario                           \
+geo                                         Portugal Francia  España Alemania
+datetime
+2025-01-01 00:00:00+01:00                     134.49   12.36  134.49     2.16
+...
+[672 rows × 8 columns]
+```
+
+## Filtering to one country
+
+With `geo_ids`, each indicator returns a single column, so the result has flat columns named by indicator:
+
+```python
+handle = client.indicators.get(600)
+spain_id = handle.resolve_geo("España")
+
+df = client.indicators.compare(
+    [600, 612, 613, 614],
+    start="2025-01-01",
+    end="2025-01-07",
+    geo_ids=[spain_id],
+)
+df
+```
+
+Returns:
+
+```
+                           Precio mercado SPOT Diario  Precio mercado SPOT Intradiario Sesión 1  ...
+datetime
+2025-01-01 00:00:00+01:00                      134.49                                    129.89  ...
+...
+[672 rows × 4 columns]
+```
+
+## Visualize
+
+```python
+df.plot(figsize=(14, 5), title="Market Session Prices — España (€/MWh)")
+```
+
+## Statistical summary
+
+```python
+df.describe().round(2)
+```
+
+Returns:
+
+```
+       Precio mercado SPOT Diario  Precio mercado SPOT Intradiario Sesión 1  ...
+count                      672.00                                    672.00
+mean                        92.74                                     93.22
+std                         43.26                                     42.73
+min                          3.52                                     -0.01
+25%                         58.04                                     57.50
+50%                        100.42                                    102.00
+75%                        126.60                                    124.29
+max                        161.10                                    163.99
+```
+
+## Next steps
+
+- [Analyze market prices in detail](/examples/market-prices)
+- [Work with generation and demand data](/examples/generation-and-demand)

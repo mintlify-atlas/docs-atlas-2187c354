@@ -1,0 +1,99 @@
+---
+title: I90 Settlement Files
+description: Download and parse I90DIA settlement files with detailed per-unit market data
+---
+
+I90DIA files contain detailed per-unit settlement data for the Spanish electricity market. This guide shows how to download and parse them.
+
+## Setup
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient()
+```
+
+## Download I90DIA files
+
+Archive ID 34 = I90DIA (daily settlement by programming unit).
+
+```python
+path = client.archives.download(
+    34,
+    date="2024-06-15",
+    output_dir="data",
+)
+print(f"Extracted to: {path}")
+```
+
+Output:
+
+```
+Extracted to: /Users/username/.cache/esios/archives/34/I90DIA_20240615
+```
+
+## Parse with I90Book
+
+The `I90Book` class reads the XLS file and gives access to individual sheets:
+
+```python
+from pathlib import Path
+from esios.processing.i90 import I90Book
+
+# Find the XLS file
+xls_files = list(Path("data").rglob("I90DIA*.xls"))
+print(f"Found: {[f.name for f in xls_files]}")
+```
+
+Output:
+
+```
+Found: ['I90DIA_20240615.xls']
+```
+
+Load the workbook:
+
+```python
+book = I90Book(xls_files[0])
+print(f"Date: {book.metadata['date_data']}")
+print(f"Sheets: {list(book.table_of_contents.keys())[:10]}")
+```
+
+Output:
+
+```
+Date: 2024-06-15 00:00:00
+Sheets: ['I90DIA00', 'I90DIA01', 'I90DIA02', 'I90DIA03', 'I90DIA04', 'I90DIA05', 'I90DIA06', 'I90DIA07', 'I90DIA08', 'I90DIA09']
+```
+
+## Read a specific sheet
+
+Sheet "I90DIA03" contains generation by technology:
+
+```python
+sheet = book["I90DIA03"]
+df = sheet.df
+print(f"Frequency: {sheet.frequency}")
+df
+```
+
+Returns a multi-indexed DataFrame:
+
+```
+                                                                                                                                  value
+Redespacho Sentido Unidad de Programación Nm Oferta asignada Tipo Oferta Tipo cálculo Tipo Restricción datetime
+UPOPVPV    Subir   ABO2                   32162900           1.0         Complejo     RTD              2024-06-14 22:00:00+00:00    NaN
+...
+[5136 rows × 1 columns]
+```
+
+## Export processed data
+
+```python
+df.to_parquet("data/i90_sheet_03.parquet")
+```
+
+## Next steps
+
+- [Use pandas for custom analysis](/examples/pandas-expressions)
+- [Explore the async client](/examples/async-client)

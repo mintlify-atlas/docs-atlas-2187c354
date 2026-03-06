@@ -1,0 +1,315 @@
+---
+title: IndicatorsManager
+description: Manager for listing, searching, and retrieving indicator data from ESIOS
+---
+
+The `IndicatorsManager` provides access to electricity market indicators with intelligent caching, automatic chunking, and multi-geography support.
+
+## IndicatorsManager
+
+Access via `client.indicators`.
+
+### list()
+
+List all available indicators as a DataFrame.
+
+```python
+df = client.indicators.list()
+```
+
+**Returns:** `pd.DataFrame` with columns:
+- `id` (index)
+- `name` — Full indicator name
+- `short_name` — Abbreviated name
+- `description` — HTML-stripped description
+- Additional metadata fields
+
+**Caching:** Uses the cached catalog when fresh (within `catalog_ttl_hours`).
+
+### search(query)
+
+Search indicators by name using case-insensitive substring matching.
+
+<ParamField path="query" type="str" required>
+  Search term to match against indicator names
+</ParamField>
+
+```python
+df = client.indicators.search("precio")
+```
+
+**Returns:** Filtered `pd.DataFrame` with matching indicators.
+
+### get(indicator_id)
+
+Get a specific indicator by ID and return a handle for data retrieval.
+
+<ParamField path="indicator_id" type="int" required>
+  Unique indicator identifier
+</ParamField>
+
+```python
+handle = client.indicators.get(1001)
+```
+
+**Returns:** `IndicatorHandle` instance with metadata and data retrieval methods.
+
+**Caching:** Uses cached metadata when fresh (within `meta_ttl_days`).
+
+### compare(indicator_ids, start, end, \*\*kwargs)
+
+Fetch multiple indicators and merge into a single DataFrame with aligned timestamps.
+
+<ParamField path="indicator_ids" type="list[int]" required>
+  List of indicator IDs to compare
+</ParamField>
+
+<ParamField path="start" type="str" required>
+  Start date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="end" type="str" required>
+  End date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="geo_ids" type="list[int]">
+  Filter to specific geography IDs
+</ParamField>
+
+<ParamField path="locale" type="str" default="es">
+  Response language (`"es"` or `"en"`)
+</ParamField>
+
+<ParamField path="time_agg" type="str">
+  Time aggregation function (`"SUM"`, `"AVG"`, etc.)
+</ParamField>
+
+<ParamField path="geo_agg" type="str">
+  Geography aggregation function
+</ParamField>
+
+<ParamField path="time_trunc" type="str">
+  Time truncation level (`"hour"`, `"day"`, etc.)
+</ParamField>
+
+<ParamField path="geo_trunc" type="str">
+  Geography truncation level
+</ParamField>
+
+```python
+df = client.indicators.compare(
+    indicator_ids=[1001, 1293],
+    start="2024-01-01",
+    end="2024-01-31",
+)
+```
+
+**Returns:** `pd.DataFrame` with DatetimeIndex and columns:
+- **Single-geo indicators:** Flat columns named by indicator name
+- **Multi-geo indicators:** MultiIndex columns `(indicator_name, geo_name)`
+
+---
+
+## IndicatorHandle
+
+Returned by `IndicatorsManager.get()`. Provides metadata access and historical data retrieval for a specific indicator.
+
+### Attributes
+
+<ResponseField name="id" type="int">
+  Indicator ID
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Indicator name
+</ResponseField>
+
+<ResponseField name="metadata" type="dict">
+  Raw API metadata including `geos`, `description`, etc.
+</ResponseField>
+
+<ResponseField name="indicator" type="Indicator">
+  Parsed indicator model
+</ResponseField>
+
+### geos
+
+Available geographies for this indicator.
+
+```python
+geos = handle.geos
+# Returns: [{"geo_id": 3, "geo_name": "España"}, ...]
+```
+
+**Returns:** `list[dict[str, Any]]` with `geo_id` and `geo_name` keys.
+
+### geos_dataframe()
+
+Get available geographies as a DataFrame.
+
+```python
+df = handle.geos_dataframe()
+```
+
+**Returns:** `pd.DataFrame` with columns `geo_id` and `geo_name`.
+
+### resolve_geo(ref)
+
+Resolve a geography reference (ID or name) to a numeric `geo_id`.
+
+<ParamField path="ref" type="str | int" required>
+  Geography reference:
+  - Integer `geo_id` (returned as-is)
+  - String integer (parsed)
+  - Geography name (case-insensitive substring match)
+</ParamField>
+
+```python
+geo_id = handle.resolve_geo("españa")
+# Returns: 3
+
+geo_id = handle.resolve_geo(8741)
+# Returns: 8741
+```
+
+**Returns:** `int` — The resolved `geo_id`.
+
+**Raises:** `ValueError` if name doesn't match any known geography.
+
+### historical(start, end, \*\*kwargs)
+
+Fetch historical values as a DataFrame with timezone-aware DatetimeIndex.
+
+<ParamField path="start" type="str" required>
+  Start date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="end" type="str" required>
+  End date (YYYY-MM-DD format)
+</ParamField>
+
+<ParamField path="geo_ids" type="list[int]">
+  Filter to specific geography IDs
+</ParamField>
+
+<ParamField path="locale" type="str" default="es">
+  Response language (`"es"` or `"en"`)
+</ParamField>
+
+<ParamField path="time_agg" type="str">
+  Time aggregation: `"SUM"`, `"AVG"`, `"MAX"`, `"MIN"`
+</ParamField>
+
+<ParamField path="geo_agg" type="str">
+  Geography aggregation function
+</ParamField>
+
+<ParamField path="time_trunc" type="str">
+  Time truncation: `"hour"`, `"day"`, `"month"`, `"year"`
+</ParamField>
+
+<ParamField path="geo_trunc" type="str">
+  Geography truncation level
+</ParamField>
+
+```python
+handle = client.indicators.get(1001)
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+)
+```
+
+**Returns:** `pd.DataFrame` with:
+- DatetimeIndex (timezone-aware, Europe/Madrid)
+- **Single geography:** Column named by indicator ID
+- **Multiple geographies:** Columns named by `geo_name`
+
+**Features:**
+- Automatically chunks requests exceeding ~3 weeks
+- Uses local parquet cache when enabled
+- Only fetches missing date ranges from API
+- Enriches geography metadata from response values
+
+**Note:** Using `time_agg` or `geo_agg` disables caching.
+
+---
+
+## Example Usage
+
+### List and search indicators
+
+```python
+import esios
+
+client = esios.ESIOSClient(token="your-token")
+
+# List all indicators
+df = client.indicators.list()
+print(df[["name", "short_name"]].head())
+
+# Search by name
+prices = client.indicators.search("precio")
+```
+
+### Get single indicator data
+
+```python
+# Get indicator handle
+handle = client.indicators.get(1001)  # PVPC
+print(f"Available geos: {handle.geos}")
+
+# Fetch historical data
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+)
+print(df.head())
+```
+
+### Multi-geography indicators
+
+```python
+# Indicator 600 returns data for multiple countries
+handle = client.indicators.get(600)
+
+# Get all geographies
+df = handle.historical("2024-01-01", "2024-01-07")
+print(df.columns)  # ['España', 'Portugal', 'Francia', ...]
+
+# Filter to specific countries
+spain_id = handle.resolve_geo("españa")
+df = handle.historical(
+    "2024-01-01",
+    "2024-01-07",
+    geo_ids=[spain_id],
+)
+```
+
+### Compare multiple indicators
+
+```python
+# Compare two price indicators
+df = client.indicators.compare(
+    indicator_ids=[1001, 1293],
+    start="2024-01-01",
+    end="2024-01-07",
+)
+
+# Result has columns for each indicator
+print(df.head())
+```
+
+### Time aggregation
+
+```python
+handle = client.indicators.get(1001)
+
+# Daily average from hourly data
+df = handle.historical(
+    start="2024-01-01",
+    end="2024-01-31",
+    time_trunc="day",
+    time_agg="AVG",
+)
+```

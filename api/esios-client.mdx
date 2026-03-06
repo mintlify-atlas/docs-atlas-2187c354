@@ -1,0 +1,257 @@
+---
+title: ESIOSClient
+description: Synchronous client for the ESIOS API
+---
+
+The `ESIOSClient` class provides a synchronous interface to the ESIOS API with built-in caching, retry logic, and resource management.
+
+## Constructor
+
+```python
+ESIOSClient(
+    token: str | None = None,
+    timeout: float = 30.0,
+    base_url: str = "https://api.esios.ree.es",
+    *,
+    cache: bool = True,
+    cache_dir: str | None = None,
+    cache_recent_ttl: int = 48,
+)
+```
+
+<ParamField path="token" type="str | None" default="None">
+  ESIOS API token. If not provided, reads from `ESIOS_API_KEY` environment variable.
+  
+  **Raises:** `ESIOSError` if no token is provided or found in environment.
+</ParamField>
+
+<ParamField path="timeout" type="float" default="30.0">
+  Request timeout in seconds for all HTTP operations.
+</ParamField>
+
+<ParamField path="base_url" type="str" default="https://api.esios.ree.es">
+  Base URL for the ESIOS API. Override for testing or alternative endpoints.
+</ParamField>
+
+<ParamField path="cache" type="bool" default="True">
+  Enable local parquet-based caching of time-series data. Caching is safe for historical electricity data since it's immutable once published.
+</ParamField>
+
+<ParamField path="cache_dir" type="str | None" default="None">
+  Custom cache directory path. If not specified, uses `$XDG_CACHE_HOME/esios` or `~/.cache/esios`.
+</ParamField>
+
+<ParamField path="cache_recent_ttl" type="int" default="48">
+  TTL in hours for recent data. Data newer than this is refetched to ensure accuracy, since recent values may be updated by ESIOS.
+</ParamField>
+
+### Example
+
+```python
+from esios import ESIOSClient
+
+# With context manager (recommended)
+with ESIOSClient(token="your-api-token") as client:
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+
+# Manual lifecycle management
+client = ESIOSClient()
+df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+client.close()
+```
+
+## Properties
+
+### indicators
+
+<ResponseField name="indicators" type="IndicatorsManager">
+  Manager for querying electricity market indicators. See [Indicators](/api/indicators) for details.
+</ResponseField>
+
+```python
+client.indicators.get(600)  # Get indicator by ID
+client.indicators.list()    # List all indicators
+```
+
+### archives
+
+<ResponseField name="archives" type="ArchivesManager">
+  Manager for downloading archive files (ZIP/CSV). See [Archives](/api/archives) for details.
+</ResponseField>
+
+```python
+client.archives.get(1)  # Get archive by ID
+client.archives.list()  # List all archives
+```
+
+### offer_indicators
+
+<ResponseField name="offer_indicators" type="OfferIndicatorsManager">
+  Manager for querying offer indicator data. See [Offer Indicators](/api/offer-indicators) for details.
+</ResponseField>
+
+```python
+client.offer_indicators.get(25)  # Get offer indicator by ID
+client.offer_indicators.list()   # List all offer indicators
+```
+
+### catalog
+
+<ResponseField name="catalog" type="ESIOSCatalog">
+  Offline YAML-based catalog for searching and exploring indicators without API calls.
+</ResponseField>
+
+```python
+client.catalog.search("precio")
+client.catalog.by_id(600)
+```
+
+### cache
+
+<ResponseField name="cache" type="CacheStore">
+  Direct access to the cache store for advanced operations like clearing cache or checking status.
+</ResponseField>
+
+```python
+client.cache.status()                    # Get cache statistics
+client.cache.clear()                     # Clear all cached data
+client.cache.clear("indicators", 600)    # Clear specific indicator
+```
+
+## Methods
+
+### get()
+
+```python
+def get(endpoint: str, params: dict[str, Any] | None = None) -> dict
+```
+
+Issue a GET request to the ESIOS API with automatic retry logic.
+
+<ParamField path="endpoint" type="str" required>
+  API endpoint path (without leading slash). Example: `"indicators/600"`
+</ParamField>
+
+<ParamField path="params" type="dict[str, Any] | None" default="None">
+  Query parameters to include in the request.
+</ParamField>
+
+<ResponseField name="return" type="dict">
+  JSON response parsed as a Python dictionary.
+</ResponseField>
+
+**Retry behavior:**
+- Retries up to 3 times on `APIResponseError` and `NetworkError`
+- Uses exponential backoff: 2s to 10s between retries
+- Does **not** retry on `AuthenticationError` (401/403)
+
+**Raises:**
+- `AuthenticationError` – Invalid API token (401/403), not retried
+- `APIResponseError` – HTTP errors (4xx/5xx), retried
+- `NetworkError` – Connection failures or timeouts, retried
+
+### Example
+
+```python
+# Direct API call
+data = client.get("indicators/600", params={"start_date": "2025-01-01"})
+```
+
+### download()
+
+```python
+def download(url: str) -> bytes
+```
+
+Download raw bytes from an absolute URL, typically for archive files.
+
+<ParamField path="url" type="str" required>
+  Absolute URL to download from. Handles 307 redirects to S3 presigned URLs automatically.
+</ParamField>
+
+<ResponseField name="return" type="bytes">
+  Raw file content as bytes.
+</ResponseField>
+
+**Note:** This method automatically follows redirects (e.g., 307 to S3) without sending the API key header to external services, which would cause authentication errors.
+
+**Raises:**
+- `AuthenticationError` – 401/403 errors
+- `APIResponseError` – HTTP errors
+- `NetworkError` – Connection failures
+
+### Example
+
+```python
+# Download archive file
+archive_url = "https://api.esios.ree.es/archives/1/download/..."
+content = client.download(archive_url)
+```
+
+### close()
+
+```python
+def close() -> None
+```
+
+Close the underlying HTTP client and release resources.
+
+**Note:** Automatically called when using the client as a context manager.
+
+### Example
+
+```python
+client = ESIOSClient()
+try:
+    # Use client
+    pass
+finally:
+    client.close()
+```
+
+## Context Manager
+
+`ESIOSClient` implements the context manager protocol for automatic resource cleanup.
+
+```python
+def __enter__() -> ESIOSClient
+def __exit__(*args: Any) -> None
+```
+
+### Example
+
+```python
+with ESIOSClient(token="...") as client:
+    df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+    # client.close() called automatically on exit
+```
+
+## Error Handling
+
+All client methods may raise the following exceptions:
+
+- **`ESIOSError`** – Base exception for all ESIOS errors
+- **`AuthenticationError`** – Invalid or missing API token (not retried)
+- **`APIResponseError`** – HTTP errors from the API (retried)
+- **`NetworkError`** – Connection failures or timeouts (retried)
+
+### Example
+
+```python
+from esios import ESIOSClient
+from esios.exceptions import AuthenticationError, NetworkError
+
+try:
+    with ESIOSClient(token="invalid") as client:
+        df = client.indicators.get(600).historical("2025-01-01", "2025-01-07")
+except AuthenticationError:
+    print("Invalid API token")
+except NetworkError:
+    print("Network connection failed")
+```
+
+## Related
+
+- [AsyncESIOSClient](/api/async-client) – Async version for concurrent operations
+- [Indicators Manager](/api/indicators) – Query electricity market indicators
+- [Archives Manager](/api/archives) – Download archive files

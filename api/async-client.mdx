@@ -1,0 +1,249 @@
+---
+title: AsyncESIOSClient
+description: Asynchronous client for the ESIOS API
+---
+
+The `AsyncESIOSClient` class provides an asynchronous interface to the ESIOS API using `httpx.AsyncClient`. Use this for concurrent operations or integration with async frameworks like FastAPI.
+
+<Note>
+  `AsyncESIOSClient` does **not** include caching, managers, or catalog features. It's a low-level async HTTP client for direct API access. For full features, use the synchronous [ESIOSClient](/api/esios-client).
+</Note>
+
+## Constructor
+
+```python
+AsyncESIOSClient(
+    token: str | None = None,
+    timeout: float = 30.0,
+    base_url: str = "https://api.esios.ree.es",
+)
+```
+
+<ParamField path="token" type="str | None" default="None">
+  ESIOS API token. If not provided, reads from `ESIOS_API_KEY` environment variable.
+  
+  **Raises:** `ESIOSError` if no token is provided or found in environment.
+</ParamField>
+
+<ParamField path="timeout" type="float" default="30.0">
+  Request timeout in seconds for all HTTP operations.
+</ParamField>
+
+<ParamField path="base_url" type="str" default="https://api.esios.ree.es">
+  Base URL for the ESIOS API. Override for testing or alternative endpoints.
+</ParamField>
+
+### Example
+
+```python
+import asyncio
+from esios import AsyncESIOSClient
+
+async def main():
+    # With context manager (recommended)
+    async with AsyncESIOSClient(token="your-api-token") as client:
+        data = await client.get("indicators/600")
+    
+    # Manual lifecycle management
+    client = AsyncESIOSClient()
+    data = await client.get("indicators/600")
+    await client.close()
+
+asyncio.run(main())
+```
+
+## Methods
+
+### get()
+
+```python
+async def get(endpoint: str, params: dict[str, Any] | None = None) -> dict
+```
+
+Issue an async GET request to the ESIOS API with automatic retry logic.
+
+<ParamField path="endpoint" type="str" required>
+  API endpoint path (without leading slash). Example: `"indicators/600"`
+</ParamField>
+
+<ParamField path="params" type="dict[str, Any] | None" default="None">
+  Query parameters to include in the request.
+</ParamField>
+
+<ResponseField name="return" type="dict">
+  JSON response parsed as a Python dictionary.
+</ResponseField>
+
+**Retry behavior:**
+- Retries up to 3 times on `APIResponseError` and `NetworkError`
+- Uses exponential backoff: 2s to 10s between retries
+- Does **not** retry on `AuthenticationError` (401/403)
+
+**Raises:**
+- `AuthenticationError` – Invalid API token (401/403), not retried
+- `APIResponseError` – HTTP errors (4xx/5xx), retried
+- `NetworkError` – Connection failures or timeouts, retried
+
+### Example
+
+```python
+async with AsyncESIOSClient() as client:
+    # Fetch multiple indicators concurrently
+    results = await asyncio.gather(
+        client.get("indicators/600"),
+        client.get("indicators/1001"),
+        client.get("indicators/1739"),
+    )
+```
+
+### download()
+
+```python
+async def download(url: str) -> bytes
+```
+
+Download raw bytes from an absolute URL asynchronously.
+
+<ParamField path="url" type="str" required>
+  Absolute URL to download from. Typically used for archive file downloads.
+</ParamField>
+
+<ResponseField name="return" type="bytes">
+  Raw file content as bytes.
+</ResponseField>
+
+**Raises:**
+- `AuthenticationError` – 401/403 errors
+- `APIResponseError` – HTTP errors
+- `NetworkError` – Connection failures
+
+### Example
+
+```python
+async with AsyncESIOSClient() as client:
+    archive_url = "https://api.esios.ree.es/archives/1/download/..."
+    content = await client.download(archive_url)
+```
+
+### close()
+
+```python
+async def close() -> None
+```
+
+Close the underlying async HTTP client and release resources.
+
+**Note:** Automatically called when using the client as an async context manager.
+
+### Example
+
+```python
+client = AsyncESIOSClient()
+try:
+    data = await client.get("indicators/600")
+finally:
+    await client.close()
+```
+
+## Async Context Manager
+
+`AsyncESIOSClient` implements the async context manager protocol for automatic resource cleanup.
+
+```python
+async def __aenter__() -> AsyncESIOSClient
+async def __aexit__(*args: Any) -> None
+```
+
+### Example
+
+```python
+async with AsyncESIOSClient(token="...") as client:
+    data = await client.get("indicators/600")
+    # await client.close() called automatically on exit
+```
+
+## Concurrent Operations
+
+The async client is ideal for fetching multiple resources concurrently:
+
+```python
+import asyncio
+from esios import AsyncESIOSClient
+
+async def fetch_multiple_indicators():
+    async with AsyncESIOSClient() as client:
+        # Fetch 3 indicators in parallel
+        tasks = [
+            client.get("indicators/600"),    # Precio pool
+            client.get("indicators/1001"),   # PVPC
+            client.get("indicators/1739"),   # Generación renovable
+        ]
+        results = await asyncio.gather(*tasks)
+        return results
+
+# Run the async function
+indicators = asyncio.run(fetch_multiple_indicators())
+```
+
+## Integration with FastAPI
+
+```python
+from fastapi import FastAPI, Depends
+from esios import AsyncESIOSClient
+
+app = FastAPI()
+
+async def get_client():
+    """Dependency injection for ESIOS client."""
+    async with AsyncESIOSClient() as client:
+        yield client
+
+@app.get("/indicator/{indicator_id}")
+async def get_indicator(
+    indicator_id: int,
+    client: AsyncESIOSClient = Depends(get_client)
+):
+    data = await client.get(f"indicators/{indicator_id}")
+    return data
+```
+
+## Error Handling
+
+All async client methods may raise the following exceptions:
+
+- **`ESIOSError`** – Base exception for all ESIOS errors
+- **`AuthenticationError`** – Invalid or missing API token (not retried)
+- **`APIResponseError`** – HTTP errors from the API (retried)
+- **`NetworkError`** – Connection failures or timeouts (retried)
+
+### Example
+
+```python
+from esios import AsyncESIOSClient
+from esios.exceptions import AuthenticationError, NetworkError
+
+async def safe_fetch():
+    try:
+        async with AsyncESIOSClient(token="invalid") as client:
+            data = await client.get("indicators/600")
+    except AuthenticationError:
+        print("Invalid API token")
+    except NetworkError:
+        print("Network connection failed")
+```
+
+## Limitations
+
+The async client is a **low-level HTTP client** and does not include:
+
+- **No caching** – All requests hit the API directly
+- **No managers** – No `indicators`, `archives`, or `offer_indicators` managers
+- **No catalog** – No offline YAML catalog for searching indicators
+- **No data parsing** – Returns raw JSON; you must parse timestamps and values manually
+
+For full-featured synchronous access with caching and managers, use [ESIOSClient](/api/esios-client).
+
+## Related
+
+- [ESIOSClient](/api/esios-client) – Synchronous client with full features
+- [ESIOS API Reference](https://api.esios.ree.es/doc/) – Official API documentation

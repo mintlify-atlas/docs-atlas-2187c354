@@ -1,0 +1,143 @@
+---
+title: Installation
+description: Install python-esios and configure your API token
+---
+
+## Install via pip
+
+python-esios is available on PyPI and can be installed using pip:
+
+```bash
+pip install python-esios
+```
+
+<Note>
+  python-esios requires **Python 3.10 or higher**. Make sure your Python version meets this requirement before installing.
+</Note>
+
+## Dependencies
+
+The library automatically installs the following dependencies:
+
+- `httpx` - Modern HTTP client with async support
+- `pandas` - Data analysis and manipulation
+- `pyarrow` - Fast columnar data processing
+- `pydantic` - Data validation and settings management
+- `tenacity` - Retry logic for API calls
+- `typer` - CLI framework
+- `rich` - Beautiful terminal output
+
+## Get Your API Token
+
+To use python-esios, you need a free API token from Red Eléctrica de España (REE).
+
+<Steps>
+  <Step title="Request a token">
+    Visit the [ESIOS API page](https://www.esios.ree.es/es/pagina/api) and request a personal token. Registration is free.
+  </Step>
+  
+  <Step title="Receive your token">
+    REE will send you your API token via email. Keep this token secure and don't share it publicly.
+  </Step>
+</Steps>
+
+## Configure Your Token
+
+There are three ways to provide your API token to python-esios:
+
+### Option 1: CLI Configuration (Recommended)
+
+Use the CLI to store your token securely in a configuration file:
+
+```bash
+esios config set token YOUR_TOKEN
+```
+
+This stores the token in `~/.config/esios/config.toml`. The token will be automatically used by both the CLI and Python library.
+
+<Note>
+  Replace `YOUR_TOKEN` with the actual token you received from REE.
+</Note>
+
+### Option 2: Environment Variable
+
+Set the `ESIOS_API_KEY` environment variable:
+
+<CodeGroup>
+```bash Linux/macOS
+export ESIOS_API_KEY="YOUR_TOKEN"
+```
+
+```bash Windows (PowerShell)
+$env:ESIOS_API_KEY="YOUR_TOKEN"
+```
+
+```bash Windows (CMD)
+set ESIOS_API_KEY=YOUR_TOKEN
+```
+</CodeGroup>
+
+For permanent configuration, add the export command to your shell profile (`.bashrc`, `.zshrc`, etc.).
+
+### Option 3: Pass Directly in Code
+
+Provide the token when creating the client:
+
+```python
+from esios import ESIOSClient
+
+client = ESIOSClient(token="YOUR_TOKEN")
+```
+
+<Warning>
+  Avoid hardcoding tokens in your source code, especially in version-controlled projects. Use environment variables or configuration files instead.
+</Warning>
+
+## Verify Installation
+
+Verify that python-esios is installed correctly by checking the version:
+
+```bash
+esios --version
+```
+
+Or test a simple query:
+
+```bash
+esios indicators search "precio"
+```
+
+If you see search results, your installation and token configuration are working correctly.
+
+## Troubleshooting
+
+### Authentication Error
+
+If you receive an authentication error:
+
+```
+ESIOSError: API key required. Pass token= or set ESIOS_API_KEY env var.
+```
+
+Make sure you've configured your token using one of the three methods above.
+
+### Import Error
+
+If you get an import error when trying to use the library:
+
+```python
+ImportError: No module named 'esios'
+```
+
+Ensure you've installed the package and are using the correct Python environment:
+
+```bash
+pip install python-esios
+python -c "import esios; print(esios.__version__)"
+```
+
+## Next Steps
+
+<Card title="Quick Start" icon="rocket" href="/quickstart">
+  Learn how to make your first query with python-esios
+</Card>

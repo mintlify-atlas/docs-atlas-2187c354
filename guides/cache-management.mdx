@@ -1,0 +1,396 @@
+---
+title: Cache Management
+description: Configure, monitor, and maintain the local parquet cache for optimal performance
+---
+
+The library caches indicator data locally as parquet files, dramatically improving performance for repeated queries. This guide covers cache configuration, monitoring, and maintenance.
+
+## How Caching Works
+
+The cache stores indicator data in wide-format parquet files:
+
+<Steps>
+
+1. **First request** fetches data from API and writes to `~/.cache/esios/indicators/{id}/data.parquet`
+
+2. **Gap detection** identifies which date ranges and columns (geographies) are missing
+
+3. **Partial fetch** only requests missing data from API
+
+4. **Merge** combines new data with cached data using `combine_first()`
+
+5. **Return** provides the complete DataFrame with minimal API usage
+
+</Steps>
+
+Historical electricity data is immutable, so caching is safe and enabled by default.
+
+## Default Cache Location
+
+Cache files are stored in:
+
+```python
+import os
+from pathlib import Path
+
+# Default: $XDG_CACHE_HOME/esios or ~/.cache/esios
+default_cache = Path(
+    os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
+) / "esios"
+
+print(default_cache)
+# Linux: /home/user/.cache/esios
+# macOS: /Users/user/.cache/esios
+# Windows: C:\Users\user\.cache\esios
+```
+
+## Cache Directory Structure
+
+```
+~/.cache/esios/
+├── geos.json                      # Global geo_id → geo_name registry
+├── indicators/
+│   ├── catalog.json               # Cached indicator list
+│   ├── 600/
+│   │   ├── data.parquet           # Time-series data (wide format)
+│   │   └── meta.json              # Metadata with geo mappings
+│   ├── 1001/
+│   │   ├── data.parquet
+│   │   └── meta.json
+│   └── ...
+└── archives/
+    └── 34/                        # Archive ID
+        ├── I90DIA_20240101/       # Extracted files per date
+        ├── I90DIA_20240102/
+        └── ...
+```
+
+## Custom Cache Configuration
+
+Configure cache behavior when creating the client:
+
+```python
+from esios import ESIOSClient, CacheConfig
+from pathlib import Path
+
+config = CacheConfig(
+    enabled=True,
+    cache_dir=Path("/custom/cache/path"),
+    recent_ttl_hours=48,      # Re-fetch data newer than this
+    meta_ttl_days=7,          # Cache metadata for this long
+    catalog_ttl_hours=24      # Cache indicator list for this long
+)
+
+client = ESIOSClient(token="your_api_key", cache_config=config)
+```
+
+## Disabling Cache
+
+For testing or when you need real-time data:
+
+```python
+config = CacheConfig(enabled=False)
+client = ESIOSClient(token="your_api_key", cache_config=config)
+
+# All requests hit the API
+handle = client.indicators.get(600)
+df = handle.historical("2024-01-01", "2024-01-31")
+# No caching performed
+```
+
+<Note>
+Disabling cache means every request hits the API, which is slower and counts against rate limits.
+</Note>
+
+## Recent Data TTL
+
+By default, data within the last 48 hours is always re-fetched because it may be updated:
+
+```python
+import pandas as pd
+from datetime import timedelta
+
+# Default: 48 hours
+config = CacheConfig(recent_ttl_hours=48)
+
+# Custom: only re-fetch data from last 24 hours
+config = CacheConfig(recent_ttl_hours=24)
+
+# Aggressive caching: only re-fetch last 6 hours
+config = CacheConfig(recent_ttl_hours=6)
+
+client = ESIOSClient(token="your_api_key", cache_config=config)
+```
+
+This prevents serving stale data for recent dates that might still be updated by REE.
+
+## Cache Status
+
+Check cache statistics:
+
+```python
+status = client.cache.status()
+
+print(f"Cache location: {status['path']}")
+print(f"Total files: {status['files']}")
+print(f"Total size: {status['size_mb']} MB")
+print(f"Indicators cached: {status['endpoints'].get('indicators', 0)} files")
+print(f"Archives cached: {status['endpoints'].get('archives', 0)} files")
+```
+
+Example output:
+
+```
+Cache location: /home/user/.cache/esios
+Total files: 47
+Total size: 123.45 MB
+Indicators cached: 38 files
+Archives cached: 9 files
+```
+
+## Clearing Cache
+
+Remove cached data to free space or force fresh API calls:
+
+<CodeGroup>
+
+```python Clear Everything
+# Remove all cached data
+count = client.cache.clear()
+print(f"Removed {count} files")
+```
+
+```python Clear Endpoint
+# Clear all indicator data (keep archives)
+count = client.cache.clear(endpoint="indicators")
+print(f"Removed {count} indicator files")
+
+# Clear all archives (keep indicators)
+count = client.cache.clear(endpoint="archives")
+print(f"Removed {count} archive files")
+```
+
+```python Clear Single Indicator
+# Clear one specific indicator
+count = client.cache.clear(endpoint="indicators", indicator_id=600)
+print(f"Removed {count} files for indicator 600")
+
+# Next request will re-fetch from API
+handle = client.indicators.get(600)
+df = handle.historical("2024-01-01", "2024-01-31")
+```
+
+</CodeGroup>
+
+## Understanding Gap Detection
+
+The cache tracks coverage per-column (per-geography):
+
+```python
+handle = client.indicators.get(600)
+
+# Request Spain only
+df1 = handle.historical(
+    "2024-01-01", "2024-01-31",
+    geo_ids=[3]  # España
+)
+# Cache: España column populated for Jan 2024
+
+# Request Portugal only
+df2 = handle.historical(
+    "2024-01-01", "2024-01-31",
+    geo_ids=[8741]  # Portugal
+)
+# Cache: Portugal column populated, España not re-fetched
+
+# Request both
+df3 = handle.historical(
+    "2024-01-01", "2024-01-31",
+    geo_ids=[3, 8741]
+)
+# Cache hit: both columns read from cache, no API call
+```
+
+This per-column gap detection enables efficient partial caching.
+
+## When Cache is Bypassed
+
+Certain operations disable caching:
+
+```python
+handle = client.indicators.get(600)
+
+# These parameters bypass cache:
+
+# Time aggregation (API-side)
+df = handle.historical(
+    "2024-01-01", "2024-01-31",
+    time_agg="sum"  # ⚠️ Hits API every time
+)
+
+# Geographic aggregation (API-side)
+df = handle.historical(
+    "2024-01-01", "2024-01-31",
+    geo_agg="average"  # ⚠️ Hits API every time
+)
+
+# Cache disabled in config
+config = CacheConfig(enabled=False)
+client = ESIOSClient(token="your_api_key", cache_config=config)
+# ⚠️ All requests hit API
+```
+
+<Tip>
+For aggregated views, fetch raw data (uses cache) then aggregate with pandas:
+
+```python
+# ✅ Efficient: cache-friendly
+df = handle.historical("2024-01-01", "2024-01-31")
+daily = df.resample("D").sum()
+
+# ❌ Inefficient: bypasses cache
+df = handle.historical(
+    "2024-01-01", "2024-01-31",
+    time_agg="sum"
+)
+```
+</Tip>
+
+## Metadata Caching
+
+Indicator metadata and catalogs are cached separately:
+
+### Indicator List (Catalog)
+
+Cached for 24 hours by default:
+
+```python
+# First call fetches from API
+indicators = client.indicators.list()
+# Cached at: ~/.cache/esios/indicators/catalog.json
+
+# Second call within 24h reads from cache
+indicators = client.indicators.list()  # Instant
+
+# After 24h, automatically refreshes
+```
+
+### Per-Indicator Metadata
+
+Cached for 7 days by default:
+
+```python
+# First call fetches metadata from API
+handle = client.indicators.get(600)
+# Cached at: ~/.cache/esios/indicators/600/meta.json
+
+# Second call within 7 days reads from cache
+handle = client.indicators.get(600)  # Instant
+
+# After 7 days, automatically refreshes
+```
+
+Customize TTLs:
+
+```python
+config = CacheConfig(
+    catalog_ttl_hours=48,  # Cache indicator list for 48h
+    meta_ttl_days=30       # Cache metadata for 30 days
+)
+```
+
+## Geographic Registry
+
+The library maintains a global geo_id → geo_name registry:
+
+```python
+# Read the global registry
+geos = client.cache.read_geos()
+print(geos)
+# Output: {'3': 'España', '8741': 'Portugal', '8742': 'Francia', ...}
+
+# Automatically populated as you fetch data
+handle = client.indicators.get(600)
+df = handle.historical("2024-01-01", "2024-01-31")
+
+# New geos discovered in data are merged into registry
+geos = client.cache.read_geos()
+print(f"Known geographies: {len(geos)}")
+```
+
+This registry is used for:
+
+- Resolving geography names to IDs
+- Enriching column names in DataFrames
+- Persisting across indicators and sessions
+
+## Cache Migration
+
+The library automatically migrates old cache formats:
+
+```
+# Old layout (v0.x):
+~/.cache/esios/indicators/600.parquet
+
+# New layout (v1.0+):
+~/.cache/esios/indicators/600/data.parquet
+~/.cache/esios/indicators/600/meta.json
+```
+
+Migration happens transparently on first access. Old files are removed after successful migration.
+
+## Cache File Format
+
+Cache uses Apache Parquet for efficient storage:
+
+- **Format**: Parquet (columnar, compressed)
+- **Index**: DatetimeIndex (timezone-aware, Europe/Madrid)
+- **Columns**: String geo_ids (e.g., "3", "8741") converted to geo_names on read
+- **Compression**: Snappy (default)
+
+You can read cache files directly:
+
+```python
+import pandas as pd
+
+df = pd.read_parquet(
+    "/home/user/.cache/esios/indicators/600/data.parquet"
+)
+
+print(df.head())
+# Columns will be geo_ids ("3", "8741") not geo_names
+```
+
+## Archive Cache Behavior
+
+Archives are cached differently from indicators:
+
+- **Format**: Raw files (XLS, extracted ZIP contents)
+- **Location**: `~/.cache/esios/archives/{id}/{name}_{datekey}/`
+- **TTL**: Infinite (never expires unless manually cleared)
+- **Key**: YYYYMMDD (daily) or YYYYMM (monthly)
+
+Clear archive cache:
+
+```python
+count = client.cache.clear(endpoint="archives")
+print(f"Freed up space by removing {count} archive files")
+```
+
+## Performance Tips
+
+<Tip>
+**Best practices for cache performance:**
+
+1. **Keep cache enabled** - 10-100x faster than API calls
+2. **Request consistent geo_ids** - Per-column caching works best when you repeatedly request the same geographies
+3. **Avoid aggregation parameters** - Use raw data with pandas aggregation for cache hits
+4. **Let recent_ttl_hours stay at 48h** - Balances freshness with cache hits
+5. **Periodically check status** - Monitor cache size and clear old data if needed
+</Tip>
+
+## Next Steps
+
+- [Fetch historical data efficiently](/guides/historical-data)
+- [Work with multi-geography indicators](/guides/multi-geography)
+- [Download and cache archives](/guides/downloading-archives)

@@ -1,0 +1,426 @@
+---
+title: "Archives"
+description: "Download historical settlement files, I90 data, and market results with automatic caching"
+icon: "file-zipper"
+---
+
+Archives are downloadable files published by ESIOS, including I90 balance files, settlement data, market results, and more. The `ArchivesManager` handles listing, configuration, and downloads with automatic date-range iteration.
+
+## Quick Start
+
+```python
+from esios import ESIOSClient
+
+with ESIOSClient() as client:
+    # Download I90 daily file
+    files = client.archives.download(1, date="2025-01-15")
+    print(files)
+    # [PosixPath('~/.cache/esios/archives/1/I90DIA_20250115/I90DIA_20250115')]
+```
+
+## Listing Archives
+
+List all available archives as a DataFrame:
+
+```python
+with ESIOSClient() as client:
+    # Use local catalog (153 archives)
+    archives = client.archives.list(source="local")
+    print(archives.head())
+    
+    # Or fetch from API (only ~24 archives)
+    archives = client.archives.list(source="api")
+```
+
+<Info>
+  The local catalog includes all 153 archives, including I90 files, settlements, and market results. The API only returns a subset.
+</Info>
+
+### Common Archives
+
+<CardGroup cols={2}>
+  <Card title="I90 Daily" icon="calendar-day">
+    Archive ID: **1**  
+    Balance and generation data (daily)
+  </Card>
+  <Card title="I90 Monthly" icon="calendar">
+    Archive ID: **2**  
+    Consolidated monthly balance files
+  </Card>
+  <Card title="I90 System" icon="server">
+    Archive ID: **68**  
+    Detailed system balance data
+  </Card>
+  <Card title="Settlements" icon="money-bill">
+    Archive ID: **96**  
+    Market settlement files
+  </Card>
+</CardGroup>
+
+## ArchiveHandle
+
+Calling `client.archives.get(id)` returns an `ArchiveHandle` — a bound object for configuration and downloads:
+
+```python
+handle = client.archives.get(1)
+
+# Access metadata
+print(handle.id)          # 1
+print(handle.name)        # "I90DIA"
+print(handle.metadata)    # Full API response dict
+```
+
+## Downloading Archives
+
+Archives can be downloaded for a single date or a date range.
+
+### Single Date
+
+```python
+with ESIOSClient() as client:
+    files = client.archives.download(
+        archive_id=1,
+        date="2025-01-15",
+        date_type="datos",       # "datos" (data date) or "publicacion" (publish date)
+        output_dir=None,         # Copy files here (default: None)
+    )
+    
+    print(files)
+    # [PosixPath('~/.cache/esios/archives/1/I90DIA_20250115/I90DIA_20250115')]
+```
+
+### Date Range
+
+Download multiple archives at once:
+
+```python
+with ESIOSClient() as client:
+    files = client.archives.download(
+        archive_id=1,
+        start="2025-01-01",
+        end="2025-01-31",
+        output_dir="./downloads",
+    )
+    
+    print(f"Downloaded {len(files)} files")
+    # Downloaded 31 files
+```
+
+<Tip>
+  Archives are always cached locally. If `output_dir` is provided, files are copied there.
+</Tip>
+
+### Date Types
+
+Archives can be filtered by two date types:
+
+- **`datos`** (default): Date of the data itself
+- **`publicacion`**: Date the file was published
+
+```python
+# Download file for data date 2025-01-15
+files = client.archives.download(1, date="2025-01-15", date_type="datos")
+
+# Download file published on 2025-01-16
+files = client.archives.download(1, date="2025-01-16", date_type="publicacion")
+```
+
+## Configuration
+
+Before downloading, archives must be configured with date parameters. This resolves the download URL:
+
+```python
+handle = client.archives.get(1)
+
+# Configure for a single date
+handle.configure(date="2025-01-15", date_type="datos")
+
+# Or configure for a date range
+handle.configure(start="2025-01-01", end="2025-01-31", date_type="datos")
+
+# Access resolved metadata
+print(handle.name)           # "I90DIA_20250115"
+print(handle._download_url)  # Full S3 URL
+```
+
+From `src/esios/managers/archives.py:46-69`:
+
+```python
+def configure(
+    self,
+    *,
+    date: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    date_type: str = "datos",
+    locale: str = "es",
+) -> None:
+    """Configure archive parameters and resolve the download URL."""
+    params: dict[str, str] = {"date_type": date_type, "locale": locale}
+    if date:
+        params["date"] = date + "T00:00:00"
+    elif start and end:
+        params["start_date"] = start + "T00:00:00"
+        params["end_date"] = end + "T23:59:59"
+    else:
+        raise ValueError("Provide either 'date', or both 'start' and 'end'.")
+    
+    response = self._manager._get(f"archives/{self.id}", params=params)
+    self.metadata = response
+    download = self.metadata["archive"]["download"]
+    self.name = download["name"]
+    self._download_url = ESIOS_API_URL + download["url"]
+```
+
+<Note>
+  The `download()` convenience method calls `configure()` automatically. You rarely need to call it manually.
+</Note>
+
+## I90 Files
+
+I90 files contain detailed electricity system balance data. They use a fixed-width format.
+
+### Download I90 Files
+
+```python
+with ESIOSClient() as client:
+    # Daily I90 (archive 1)
+    files = client.archives.download(1, date="2025-01-15")
+    
+    # Monthly I90 (archive 2)
+    files = client.archives.download(2, date="2025-01-01")  # Downloads full month
+    
+    # System I90 (archive 68)
+    files = client.archives.download(68, date="2025-01-15")
+```
+
+### Parse I90 Files
+
+python-esios includes a parser for I90 files:
+
+```python
+from esios.processing.i90 import I90Parser
+
+# Download and parse I90 file
+with ESIOSClient() as client:
+    files = client.archives.download(1, date="2025-01-15")
+    
+    # Parse the file
+    parser = I90Parser(files[0])
+    df = parser.to_dataframe()
+    
+    print(df.head())
+```
+
+See the [I90 Settlement Files](/guides/i90-settlement-files) guide for detailed parsing instructions.
+
+## Archive Types
+
+ESIOS publishes two archive types:
+
+### ZIP Archives
+
+Most archives are ZIP files containing one or more data files:
+
+```python
+# ZIP is extracted automatically
+files = client.archives.download(1, date="2025-01-15")
+# Cache structure:
+# ~/.cache/esios/archives/1/I90DIA_20250115/
+#   ├── I90DIA_20250115
+#   └── metadata.json
+```
+
+From `src/esios/managers/archives.py:173-178`:
+
+```python
+def _write_content(self, content: bytes, folder: Path, key: str, archive_type: str) -> None:
+    """Extract zip or write xls to folder."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if archive_type == "zip":
+        zx = ZipExtractor(content, folder)
+        zx.unzip()
+```
+
+### XLS Archives
+
+Some archives are Excel files:
+
+```python
+# XLS files are written directly (no extraction)
+files = client.archives.download(96, date="2025-01-15")
+# Cache structure:
+# ~/.cache/esios/archives/96/LIQUIDACIONES_20250115/
+#   └── LIQUIDACIONES_20250115.xls
+```
+
+## Horizon Types
+
+Archives have different publication horizons:
+
+- **Daily (`"D"`)**: Published daily, one file per day
+- **Monthly (`"M"`)**: Published monthly, one file per month
+
+```python
+# Daily archives: date_key is YYYYMMDD
+files = client.archives.download(1, date="2025-01-15")
+# Cache: ~/.cache/esios/archives/1/I90DIA_20250115/
+
+# Monthly archives: date_key is YYYYMM
+files = client.archives.download(2, date="2025-01-01")  # Downloads Jan 2025
+# Cache: ~/.cache/esios/archives/2/I90MES_202501/
+```
+
+From `src/esios/managers/archives.py:106-113`:
+
+```python
+while current <= end_date:
+    if horizon == "M":
+        key = current.strftime("%Y%m")
+        next_month = (current.replace(day=1) + timedelta(days=32)).replace(day=1)
+        chunk_end = min(next_month - timedelta(days=1), end_date)
+    else:
+        key = current.strftime("%Y%m%d")
+        chunk_end = current
+```
+
+## Cache Structure
+
+Archives are cached in a structured directory layout:
+
+```
+~/.cache/esios/archives/
+├── 1/                           # Archive ID
+│   ├── I90DIA_20250115/        # Archive name + date key
+│   │   └── I90DIA_20250115     # Extracted file(s)
+│   ├── I90DIA_20250116/
+│   │   └── I90DIA_20250116
+│   └── ...
+└── 2/
+    ├── I90MES_202501/
+    │   └── I90MES_202501
+    └── ...
+```
+
+### Cache Hits
+
+The client checks the cache before downloading:
+
+```python
+with ESIOSClient() as client:
+    # First call: downloads from API
+    files = client.archives.download(1, date="2025-01-15")
+    
+    # Second call: uses cache (instant)
+    files = client.archives.download(1, date="2025-01-15")
+    # Cache hit: ~/.cache/esios/archives/1/I90DIA_20250115
+```
+
+<Info>
+  Archive caching is automatic and has no TTL. Files are cached indefinitely unless manually cleared.
+</Info>
+
+## Output Directory
+
+Copy cached files to a custom location:
+
+```python
+with ESIOSClient() as client:
+    files = client.archives.download(
+        archive_id=1,
+        start="2025-01-01",
+        end="2025-01-31",
+        output_dir="./i90_files",
+    )
+
+# Directory structure:
+# ./i90_files/
+# ├── I90DIA_20250101/
+# │   └── I90DIA_20250101
+# ├── I90DIA_20250102/
+# │   └── I90DIA_20250102
+# └── ...
+```
+
+From `src/esios/managers/archives.py:185-196`:
+
+```python
+@staticmethod
+def _copy_to_output(cache_folder: Path, output_dir: Path) -> None:
+    """Copy cached files to a user-specified output directory."""
+    dest = output_dir / cache_folder.name
+    if dest.exists() and any(dest.iterdir()):
+        logger.info("Output already exists: %s", dest)
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for src_file in cache_folder.iterdir():
+        if src_file.is_file():
+            shutil.copy2(src_file, dest / src_file.name)
+    logger.info("Copied to %s", dest)
+```
+
+<Tip>
+  Files remain in the cache even when copied to `output_dir`. Subsequent downloads reuse the cache.
+</Tip>
+
+## Error Handling
+
+Date-range downloads continue on errors:
+
+```python
+with ESIOSClient() as client:
+    files = client.archives.download(
+        archive_id=1,
+        start="2020-01-01",  # Some dates may not exist
+        end="2025-01-31",
+    )
+    # Failed dates are logged and skipped
+    # Returns all successfully downloaded files
+```
+
+From `src/esios/managers/archives.py:128-134`:
+
+```python
+try:
+    self.configure(start=s, end=e, date_type=date_type)
+    content = self._manager._client.download(self._download_url)
+except (APIResponseError, Exception) as exc:
+    logger.warning("Failed to download %s to %s: %s — skipping.", s, e, exc)
+    current = chunk_end + timedelta(days=1)
+    continue
+```
+
+## Using the Handle Directly
+
+For more control, use the handle methods:
+
+```python
+with ESIOSClient() as client:
+    handle = client.archives.get(1)
+    
+    # Configure manually
+    handle.configure(date="2025-01-15")
+    
+    # Download with custom options
+    files = handle.download(
+        date="2025-01-15",
+        output_dir="./downloads",
+    )
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="ESIOSClient" icon="plug" href="/core/client">
+    Configure the API client
+  </Card>
+  <Card title="Caching" icon="database" href="/core/caching">
+    Learn about archive caching
+  </Card>
+  <Card title="I90 Parsing" icon="file-lines" href="/guides/i90-settlement-files">
+    Parse I90 balance files
+  </Card>
+  <Card title="Catalog" icon="book" href="/cli/catalog">
+    Browse available archives offline
+  </Card>
+</CardGroup>
