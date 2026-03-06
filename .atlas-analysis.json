@@ -1,0 +1,159 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Python ESIOS",
+  "projectDescription": "A Python library and CLI to query the Spanish electricity market API (ESIOS/REE).",
+  "theme": "palm",
+  "primaryColor": "#0a96fc",
+  "lightColor": "#67c4fc",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core/client",
+              "core/indicators",
+              "core/archives",
+              "core/caching"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/searching-indicators",
+              "guides/historical-data",
+              "guides/multi-geography",
+              "guides/downloading-archives",
+              "guides/i90-settlement-files",
+              "guides/async-usage",
+              "guides/cache-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api/esios-client",
+              "api/async-client"
+            ]
+          },
+          {
+            "group": "Managers",
+            "pages": [
+              "api/indicators-manager",
+              "api/archives-manager",
+              "api/offer-indicators-manager"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "api/indicator",
+              "api/archive",
+              "api/exceptions"
+            ]
+          },
+          {
+            "group": "Processing",
+            "pages": [
+              "api/dataframes",
+              "api/i90-processing"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/overview",
+              "cli/indicators",
+              "cli/archives",
+              "cli/cache",
+              "cli/config",
+              "cli/catalog"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Quickstart",
+            "pages": [
+              "examples/setup-first-query"
+            ]
+          },
+          {
+            "group": "Working with Indicators",
+            "pages": [
+              "examples/search-indicators",
+              "examples/historical-data",
+              "examples/multi-geography-indicators",
+              "examples/compare-indicators",
+              "examples/market-prices",
+              "examples/generation-and-demand"
+            ]
+          },
+          {
+            "group": "Working with Archives",
+            "pages": [
+              "examples/download-archives",
+              "examples/i90-settlement-files"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "examples/pandas-expressions",
+              "examples/async-client"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Synchronous and async clients for ESIOS API access",
+    "Retrieve electricity market indicators (prices, generation, demand)",
+    "Download archives including I90 settlement files",
+    "Intelligent parquet-based caching for performance",
+    "Multi-geography indicator support with automatic pivoting",
+    "Pandas DataFrame integration for data analysis",
+    "CLI tool for quick data access and exploration",
+    "Offline catalog of 600+ indicators and 150+ archives"
+  ],
+  "publicApiSurface": [
+    "ESIOSClient",
+    "AsyncESIOSClient",
+    "client.indicators.get(id)",
+    "client.indicators.search(query)",
+    "client.indicators.list()",
+    "client.indicators.compare(indicator_ids, start, end)",
+    "client.archives.get(id)",
+    "client.archives.download(id, start, end)",
+    "client.archives.list()",
+    "handle.historical(start, end, geo_ids=None)",
+    "client.cache.status()",
+    "client.cache.clear()",
+    "client.catalog.indicators.search(query)",
+    "esios indicators search <query>",
+    "esios indicators history <id> --start <date> --end <date>",
+    "esios archives download <id> --start <date> --end <date>",
+    "esios cache status",
+    "esios config set token <token>"
+  ]
+}
