@@ -233,8 +233,8 @@ The client also provides access to an offline catalog of indicators and archives
 ```python
 with ESIOSClient() as client:
     # Browse offline catalog (YAML-based, no API calls)
-    catalog = client.catalog.indicators()
-    print(catalog.head())
+    indicators_df = client.catalog.indicators.list()
+    print(indicators_df.head())
 ```
 
 See the [Catalog](/cli/catalog) guide for more details.

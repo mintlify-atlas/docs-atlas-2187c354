@@ -98,12 +98,18 @@ client.offer_indicators.list()   # List all offer indicators
 ### catalog
 
 <ResponseField name="catalog" type="ESIOSCatalog">
-  Offline YAML-based catalog for searching and exploring indicators without API calls.
+  Offline YAML-based catalog for searching and exploring indicators and archives without API calls.
 </ResponseField>
 
 ```python
-client.catalog.search("precio")
-client.catalog.by_id(600)
+# List all indicators from offline catalog
+client.catalog.indicators.list()
+
+# Search indicators in catalog
+client.catalog.indicators.search("precio")
+
+# List all archives
+client.catalog.archives.list()
 ```
 
 ### cache
